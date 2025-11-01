@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		EDF881912EB513B900643C5F /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = EDF881902EB513B900643C5F /* SwiftTerm */; };
+		EDF881C82EB5D23800643C5F /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = EDF881C72EB5D23800643C5F /* WhisperKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EDF881C82EB5D23800643C5F /* WhisperKit in Frameworks */,
 				EDF881912EB513B900643C5F /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,6 +73,7 @@
 			name = ClaudeConsole;
 			packageProductDependencies = (
 				EDF881902EB513B900643C5F /* SwiftTerm */,
+				EDF881C72EB5D23800643C5F /* WhisperKit */,
 			);
 			productName = ClaudeConsole;
 			productReference = ED5DD7F62EB5126300FBF976 /* ClaudeConsole.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				EDF8818F2EB513B900643C5F /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				EDF881C62EB5D23800643C5F /* XCRemoteSwiftPackageReference "whisperkit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = ED5DD7F72EB5126300FBF976 /* Products */;
@@ -267,6 +271,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ClaudeConsole needs microphone access for speech-to-text functionality";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -294,6 +299,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ClaudeConsole needs microphone access for speech-to-text functionality";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -338,6 +344,14 @@
 				minimumVersion = 1.5.0;
 			};
 		};
+		EDF881C62EB5D23800643C5F /* XCRemoteSwiftPackageReference "whisperkit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/whisperkit";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -345,6 +359,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = EDF8818F2EB513B900643C5F /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		EDF881C72EB5D23800643C5F /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EDF881C62EB5D23800643C5F /* XCRemoteSwiftPackageReference "whisperkit" */;
+			productName = WhisperKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

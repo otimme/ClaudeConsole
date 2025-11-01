@@ -37,10 +37,12 @@ class ContextMonitor: ObservableObject {
     private var outputBuffer = ""
     private var isCapturingContext = false
     private var captureTimer: Timer?
+    private var terminalOutputObserver: NSObjectProtocol?
+    private var terminalControllerObserver: NSObjectProtocol?
 
     init() {
         // Listen for terminal output
-        NotificationCenter.default.addObserver(
+        terminalOutputObserver = NotificationCenter.default.addObserver(
             forName: .terminalOutput,
             object: nil,
             queue: .main
@@ -52,7 +54,7 @@ class ContextMonitor: ObservableObject {
         }
 
         // Listen for terminal controller
-        NotificationCenter.default.addObserver(
+        terminalControllerObserver = NotificationCenter.default.addObserver(
             forName: .terminalControllerAvailable,
             object: nil,
             queue: .main
@@ -189,7 +191,13 @@ class ContextMonitor: ObservableObject {
 
     deinit {
         captureTimer?.invalidate()
-        NotificationCenter.default.removeObserver(self)
+
+        if let observer = terminalOutputObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = terminalControllerObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }
 

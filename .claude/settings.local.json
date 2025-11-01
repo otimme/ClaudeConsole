@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(sqlite3:*)",
+      "Bash(killall:*)",
+      "Bash(xcodebuild:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

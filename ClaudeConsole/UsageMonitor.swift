@@ -46,6 +46,9 @@ class UsageMonitor: ObservableObject {
 
     private var claudePath: String?
 
+    // Serial queue for thread-safe buffer access
+    private let bufferQueue = DispatchQueue(label: "com.claudeconsole.usagemonitor.buffer")
+
     init() {
         // Initialize on background thread to avoid view update conflicts
         DispatchQueue.global(qos: .background).async { [weak self] in
@@ -92,12 +95,16 @@ class UsageMonitor: ObservableObject {
                 }
             }
 
-            // print("UsageMonitor: 'which claude' failed, trying hardcoded nvm path")
-            // Fallback: try common nvm location
-            let nvmPath = "\(NSHomeDirectory())/.nvm/versions/node/v22.19.0/bin/claude"
-            if FileManager.default.fileExists(atPath: nvmPath) {
-                self.claudePath = nvmPath
-                // print("UsageMonitor: Found claude at \(nvmPath)")
+            // Fallback: search for claude in nvm node versions
+            let nvmDir = "\(NSHomeDirectory())/.nvm/versions/node"
+            if let nodeVersions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+                for version in nodeVersions.sorted().reversed() {
+                    let claudePath = "\(nvmDir)/\(version)/bin/claude"
+                    if FileManager.default.fileExists(atPath: claudePath) {
+                        self.claudePath = claudePath
+                        return
+                    }
+                }
             }
         } catch {
             // print("UsageMonitor: Failed to find claude: \(error)")
@@ -223,8 +230,8 @@ class UsageMonitor: ObservableObject {
             if bytesRead > 0 {
                 let data = Data(buffer[0..<bytesRead])
                 if let text = String(data: data, encoding: .utf8) {
-                    // Update buffer and parse on background queue
-                    DispatchQueue.global(qos: .background).async {
+                    // Update buffer on serial queue to prevent data races
+                    self.bufferQueue.async {
                         self.outputBuffer += text
                         self.parseUsageOutput()
                     }
@@ -302,6 +309,7 @@ class UsageMonitor: ObservableObject {
     }
 
     private func parseUsageOutput() {
+        // This method should only be called from bufferQueue
         // Parse the output buffer for usage statistics
         // Format:
         // Current session
