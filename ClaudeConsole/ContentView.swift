@@ -24,7 +24,7 @@ struct ContentView: View {
             Divider()
 
             // Terminal in the middle with speech-to-text overlay
-            ZStack(alignment: .bottomTrailing) {
+            ZStack(alignment: .top) {
                 TerminalView(terminalController: $terminalController)
                     .frame(minWidth: 800, minHeight: 400)
 
@@ -40,13 +40,33 @@ struct ContentView: View {
                     ModelWarmupIndicator()
                 }
 
-                // Speech-to-text status indicator (bottom-right)
-                if speechToText.isRecording || speechToText.isTranscribing {
-                    SpeechStatusIndicator(
-                        isRecording: speechToText.isRecording,
-                        isTranscribing: speechToText.isTranscribing
+                // Error banner (top)
+                if let error = speechToText.currentError {
+                    ErrorBanner(
+                        error: error,
+                        onDismiss: {
+                            speechToText.clearError()
+                        },
+                        onRetry: error.canRetry ? {
+                            speechToText.retryAfterError()
+                        } : nil
                     )
-                    .padding(16)
+                    .zIndex(100) // Ensure it appears above other content
+                }
+
+                // Speech-to-text status indicator (bottom-right)
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        if speechToText.isRecording || speechToText.isTranscribing {
+                            SpeechStatusIndicator(
+                                isRecording: speechToText.isRecording,
+                                isTranscribing: speechToText.isTranscribing
+                            )
+                            .padding(16)
+                        }
+                    }
                 }
             }
 

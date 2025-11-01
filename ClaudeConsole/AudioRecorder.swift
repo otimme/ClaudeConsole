@@ -16,6 +16,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isRecording = false
     @Published var permissionDenied = false
     @Published var hasPermission = false
+    @Published var currentError: SpeechToTextError?
 
     override init() {
         super.init()
@@ -34,9 +35,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 DispatchQueue.main.async {
                     self.hasPermission = granted
-                }
-                if !granted {
-                    self.permissionDenied = true
+                    if !granted {
+                        self.permissionDenied = true
+                    }
                 }
             }
         case .denied, .restricted:
@@ -53,13 +54,27 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func startRecording() {
         guard hasPermission else {
             requestMicrophonePermission()
+            DispatchQueue.main.async {
+                self.currentError = .microphonePermissionDenied
+            }
             return
         }
+
+        // Clear any previous errors
+        DispatchQueue.main.async {
+            self.currentError = nil
+        }
+
         // Create temporary file for recording
         let tempDir = FileManager.default.temporaryDirectory
         recordingURL = tempDir.appendingPathComponent("recording_\(Date().timeIntervalSince1970).wav")
 
-        guard let url = recordingURL else { return }
+        guard let url = recordingURL else {
+            DispatchQueue.main.async {
+                self.currentError = .audioRecordingFailed(reason: "Could not create temporary file.")
+            }
+            return
+        }
 
         // Configure audio settings for Whisper
         // Whisper expects 16kHz mono audio
@@ -89,6 +104,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             } else {
                 DispatchQueue.main.async {
                     self.permissionDenied = true
+                    self.currentError = .microphonePermissionDenied
                 }
                 showPermissionAlert()
             }
@@ -97,15 +113,33 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             if error.domain == NSOSStatusErrorDomain && error.code == -50 {
                 DispatchQueue.main.async {
                     self.permissionDenied = true
+                    self.currentError = .microphonePermissionDenied
                 }
                 showPermissionAlert()
+            } else {
+                // Other recording errors
+                DispatchQueue.main.async {
+                    let errorMessage = error.localizedDescription
+                    self.currentError = .audioRecordingFailed(reason: errorMessage)
+                }
             }
         }
     }
 
     // AVAudioRecorderDelegate method
     func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        // Handle encoding errors silently
+        // Handle encoding errors during recording
+        if let error = error {
+            DispatchQueue.main.async {
+                self.currentError = .audioRecordingFailed(reason: error.localizedDescription)
+                self.isRecording = false
+            }
+        }
+    }
+
+    /// Clear current error (called when user dismisses error banner)
+    func clearError() {
+        currentError = nil
     }
 
     private func showPermissionAlert() {

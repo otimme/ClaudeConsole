@@ -17,16 +17,18 @@ class SpeechToTextController: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var isReady = false
+    @Published var currentError: SpeechToTextError?
 
     private weak var terminalController: LocalProcessTerminalView?
     private var cancellables = Set<AnyCancellable>()
+    private var terminalControllerObserver: NSObjectProtocol?
 
     init() {
         setupKeyboardCallbacks()
         observeSpeechRecognition()
 
         // Listen for terminal controller
-        NotificationCenter.default.addObserver(
+        terminalControllerObserver = NotificationCenter.default.addObserver(
             forName: .terminalControllerAvailable,
             object: nil,
             queue: .main
@@ -73,6 +75,26 @@ class SpeechToTextController: ObservableObject {
                 self?.isTranscribing = transcribing
             }
             .store(in: &cancellables)
+
+        // Observe errors from speech recognition
+        speechRecognition.$currentError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] error in
+                if let error = error {
+                    self?.currentError = error
+                }
+            }
+            .store(in: &cancellables)
+
+        // Observe errors from audio recorder
+        audioRecorder.$currentError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] error in
+                if let error = error {
+                    self?.currentError = error
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func startRecording() {
@@ -112,7 +134,42 @@ class SpeechToTextController: ObservableObject {
         keyboardMonitor.setPushToTalkKey(keyCode)
     }
 
+    /// Clear current error (called when user dismisses error banner)
+    func clearError() {
+        currentError = nil
+        speechRecognition.clearError()
+        audioRecorder.clearError()
+    }
+
+    /// Retry after error (called from error banner retry button)
+    func retryAfterError() {
+        guard let error = currentError else { return }
+
+        // Clear errors first
+        clearError()
+
+        // Retry based on error type
+        switch error {
+        case .modelDownloadFailed, .modelInitializationFailed:
+            // Retry model initialization
+            Task {
+                await speechRecognition.retryInitialization()
+            }
+        case .audioRecordingFailed, .emptyAudioFile:
+            // User can simply try recording again - no specific action needed
+            break
+        case .transcriptionFailed:
+            // User can try recording again - no specific action needed
+            break
+        case .microphonePermissionDenied:
+            // User needs to grant permission in System Settings
+            break
+        }
+    }
+
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let observer = terminalControllerObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }
