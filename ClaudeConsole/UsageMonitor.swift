@@ -46,6 +46,9 @@ class UsageMonitor: ObservableObject {
 
     private var claudePath: String?
 
+    // Serial queue for thread-safe buffer access
+    private let bufferQueue = DispatchQueue(label: "com.claudeconsole.usagemonitor.buffer")
+
     init() {
         // Initialize on background thread to avoid view update conflicts
         DispatchQueue.global(qos: .background).async { [weak self] in
@@ -223,8 +226,8 @@ class UsageMonitor: ObservableObject {
             if bytesRead > 0 {
                 let data = Data(buffer[0..<bytesRead])
                 if let text = String(data: data, encoding: .utf8) {
-                    // Update buffer and parse on background queue
-                    DispatchQueue.global(qos: .background).async {
+                    // Update buffer on serial queue to prevent data races
+                    self.bufferQueue.async {
                         self.outputBuffer += text
                         self.parseUsageOutput()
                     }
@@ -302,6 +305,7 @@ class UsageMonitor: ObservableObject {
     }
 
     private func parseUsageOutput() {
+        // This method should only be called from bufferQueue
         // Parse the output buffer for usage statistics
         // Format:
         // Current session

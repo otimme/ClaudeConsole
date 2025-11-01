@@ -7,6 +7,11 @@ A macOS app that wraps the Claude Code CLI with real-time usage and context stat
 ## Features
 
 - **Integrated Terminal**: Full-featured terminal running Claude Code CLI with SwiftTerm
+- **Push-to-Talk Speech-to-Text**: Hold Right Command key to dictate text into the terminal
+  - State-of-the-art WhisperKit (OpenAI Whisper) for accurate transcription
+  - Excellent recognition of programming terminology (async/await, React hooks, kubectl, etc.)
+  - Completely free and runs locally on your Mac (no cloud API costs)
+  - Visual feedback for recording and transcription status
 - **Usage Statistics**: Real-time monitoring of daily and weekly token limits
   - Current session usage
   - Weekly usage (all models)
@@ -21,9 +26,10 @@ A macOS app that wraps the Claude Code CLI with real-time usage and context stat
 
 ## Requirements
 
-- macOS 13.0+
+- macOS 14.0+ (required for WhisperKit speech-to-text)
 - Xcode 15.0+
 - Claude Code CLI installed (`npm install -g @anthropics/claude-code`)
+- Microphone access (for speech-to-text feature)
 
 ## Installation
 
@@ -45,6 +51,15 @@ A macOS app that wraps the Claude Code CLI with real-time usage and context stat
 4. Type `claude` to start a Claude Code session
 5. Usage stats automatically update every minute
 6. Click the refresh button (↻) next to "Context Usage" to update context stats
+7. **Push-to-Talk**: Hold Right Command key, speak, then release to transcribe text into terminal
+
+### Speech-to-Text Setup
+
+See [SPEECH_TO_TEXT_SETUP.md](SPEECH_TO_TEXT_SETUP.md) for detailed setup instructions including:
+- Adding WhisperKit dependency
+- Configuring microphone permissions
+- Changing the push-to-talk key
+- Troubleshooting and model options
 
 ## How It Works
 
