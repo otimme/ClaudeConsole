@@ -95,12 +95,16 @@ class UsageMonitor: ObservableObject {
                 }
             }
 
-            // print("UsageMonitor: 'which claude' failed, trying hardcoded nvm path")
-            // Fallback: try common nvm location
-            let nvmPath = "\(NSHomeDirectory())/.nvm/versions/node/v22.19.0/bin/claude"
-            if FileManager.default.fileExists(atPath: nvmPath) {
-                self.claudePath = nvmPath
-                // print("UsageMonitor: Found claude at \(nvmPath)")
+            // Fallback: search for claude in nvm node versions
+            let nvmDir = "\(NSHomeDirectory())/.nvm/versions/node"
+            if let nodeVersions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+                for version in nodeVersions.sorted().reversed() {
+                    let claudePath = "\(nvmDir)/\(version)/bin/claude"
+                    if FileManager.default.fileExists(atPath: claudePath) {
+                        self.claudePath = claudePath
+                        return
+                    }
+                }
             }
         } catch {
             // print("UsageMonitor: Failed to find claude: \(error)")
