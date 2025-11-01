@@ -19,6 +19,17 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     private var isPWDCapture = false
     private var pwdBuffer = ""
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Ensure terminal becomes first responder when added to window
+        if window != nil {
+            DispatchQueue.main.async { [weak self] in
+                self?.window?.makeFirstResponder(self)
+            }
+        }
+    }
+
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
         // First, feed the data to the terminal (normal operation)
         super.dataReceived(slice: slice)
@@ -162,6 +173,9 @@ struct TerminalView: NSViewRepresentable {
         DispatchQueue.main.async {
             self.terminalController = terminalView
 
+            // Make terminal become first responder to receive keyboard events
+            terminalView.window?.makeFirstResponder(terminalView)
+
             // Post notification that terminal controller is available
             NotificationCenter.default.post(
                 name: .terminalControllerAvailable,
@@ -174,6 +188,6 @@ struct TerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MonitoredLocalProcessTerminalView, context: Context) {
-        // Update if needed
+        // No updates needed - SwiftTerm handles everything
     }
 }
