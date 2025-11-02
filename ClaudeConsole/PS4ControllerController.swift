@@ -22,6 +22,21 @@ class PS4ControllerController: ObservableObject {
     private var terminalControllerObserver: NSObjectProtocol?
 
     init() {
+        // Forward monitor's objectWillChange to trigger UI updates
+        monitor.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        // Forward mapping's objectWillChange as well
+        mapping.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         // Listen for terminal controller availability
         terminalControllerObserver = NotificationCenter.default.addObserver(
             forName: .terminalControllerAvailable,

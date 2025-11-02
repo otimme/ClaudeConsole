@@ -89,8 +89,10 @@ class PS4ControllerMonitor: ObservableObject {
 
     init() {
         setupControllerNotifications()
-        // Check for already connected controllers immediately
-        connectToController()
+        // Check for already connected controllers after a brief delay to ensure UI is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.connectToController()
+        }
     }
 
     private func setupControllerNotifications() {
@@ -121,6 +123,8 @@ class PS4ControllerMonitor: ObservableObject {
             // Ensure connection happens on main thread
             DispatchQueue.main.async { [weak self] in
                 self?.connectToController()
+                // Force UI update by explicitly sending change notification
+                self?.objectWillChange.send()
             }
         }
     }
@@ -136,10 +140,14 @@ class PS4ControllerMonitor: ObservableObject {
             self.pressedButtons.removeAll()
             self.batteryLevel = nil
             self.batteryState = .unknown
+            self.batteryIsUnavailable = false
 
             // Invalidate battery monitoring timer
             self.batteryMonitorTimer?.invalidate()
             self.batteryMonitorTimer = nil
+
+            // Force UI update by explicitly sending change notification
+            self.objectWillChange.send()
         }
     }
 
@@ -200,6 +208,11 @@ class PS4ControllerMonitor: ObservableObject {
 
             setupControllerCallbacks()
             startBatteryMonitoring()
+
+            // Force UI update after all properties are set
+            DispatchQueue.main.async { [weak self] in
+                self?.objectWillChange.send()
+            }
         } else {
             print("PS4Controller: No compatible controller found")
         }
