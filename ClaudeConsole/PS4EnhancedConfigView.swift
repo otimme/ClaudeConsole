@@ -228,49 +228,51 @@ struct ActionEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header (fixed)
-            HStack {
-                ButtonIcon(button: button)
-                    .frame(width: 30)
-
-                Text(button.displayName)
-                    .font(.title3)
-                    .fontWeight(.medium)
-
-                Spacer()
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-
-            // Action type selector (fixed)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Action Type")
-                    .font(.headline)
-
-                Picker("Action Type", selection: $selectedActionType) {
-                    ForEach(ActionType.allCases, id: \.self) { type in
-                        Label(type.rawValue, systemImage: type.icon)
-                            .tag(type)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .onChange(of: selectedActionType) { newType in
-                    // Only reset if user manually changed the type (not loading from button)
-                    if !isLoadingFromButton {
-                        resetToDefaults(for: newType)
-                        showSaveSuccess = false
-                    }
-                }
-            }
-            .padding()
-
-            Divider()
-
-            // Scrollable content area
+        VStack(spacing: 0) {
+            // Scrollable content area (everything except save buttons)
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    // Header
+                    HStack {
+                        ButtonIcon(button: button)
+                            .frame(width: 30)
+
+                        Text(button.displayName)
+                            .font(.title3)
+                            .fontWeight(.medium)
+
+                        Spacer()
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color(NSColor.controlBackgroundColor))
+
+                    // Action type selector
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Action Type")
+                            .font(.headline)
+
+                        Picker("Action Type", selection: $selectedActionType) {
+                            ForEach(ActionType.allCases, id: \.self) { type in
+                                Label(type.rawValue, systemImage: type.icon)
+                                    .tag(type)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onChange(of: selectedActionType) { newType in
+                            // Only reset if user manually changed the type (not loading from button)
+                            if !isLoadingFromButton {
+                                resetToDefaults(for: newType)
+                                showSaveSuccess = false
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    Divider()
+                        .padding(.horizontal)
+
                     // Action-specific editor
                     Group {
                         switch selectedActionType {
@@ -296,17 +298,21 @@ struct ActionEditorView: View {
                         }
                     }
                     .padding(.horizontal)
-                    .padding(.top)
+
+                    // Spacer for short content
+                    Spacer(minLength: 20)
+
+                    // Preview
+                    ActionPreview(action: previewAction)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color(NSColor.controlBackgroundColor))
                 }
             }
-            .frame(maxHeight: .infinity)
 
-            // Preview (fixed)
-            ActionPreview(action: previewAction)
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
+            Divider()
 
-            // Save button (fixed)
+            // Save button (fixed at bottom)
             HStack {
                 // Success indicator
                 if showSaveSuccess {
