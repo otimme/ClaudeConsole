@@ -8,6 +8,7 @@
 import Foundation
 import GameController
 import Combine
+import os.log
 
 // Enum for all PS4 controller buttons
 enum PS4Button: String, CaseIterable, Codable {
@@ -64,6 +65,8 @@ enum PS4Button: String, CaseIterable, Codable {
 }
 
 class PS4ControllerMonitor: ObservableObject {
+    private static let logger = Logger(subsystem: "com.app.ClaudeConsole", category: "PS4Controller")
+
     @Published var isConnected = false
     @Published var pressedButtons: Set<PS4Button> = []
     @Published var leftStickX: Float = 0
@@ -74,9 +77,11 @@ class PS4ControllerMonitor: ObservableObject {
     @Published var r2Value: Float = 0
     @Published var batteryLevel: Float? = nil
     @Published var batteryState: GCDeviceBattery.State = .unknown
+    @Published var batteryIsUnavailable: Bool = false  // True when battery info cannot be obtained
 
     private var controller: GCController?
     private var cancellables = Set<AnyCancellable>()
+    private var batteryMonitorTimer: Timer?
 
     // Callbacks for button events
     var onButtonPressed: ((PS4Button) -> Void)?
@@ -113,17 +118,29 @@ class PS4ControllerMonitor: ObservableObject {
         if controller.productCategory == "DualShock 4" ||
            controller.vendorName?.contains("Sony") == true ||
            controller.extendedGamepad != nil {
-            connectToController()
+            // Ensure connection happens on main thread
+            DispatchQueue.main.async { [weak self] in
+                self?.connectToController()
+            }
         }
     }
 
     @objc private func controllerDidDisconnect(_ notification: Notification) {
-        // Set connection state immediately for instant UI update
-        self.isConnected = false
-        self.controller = nil
-        self.pressedButtons.removeAll()
-        self.batteryLevel = nil
-        self.batteryState = .unknown
+        // Ensure all state updates happen on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Set connection state immediately for instant UI update
+            self.isConnected = false
+            self.controller = nil
+            self.pressedButtons.removeAll()
+            self.batteryLevel = nil
+            self.batteryState = .unknown
+
+            // Invalidate battery monitoring timer
+            self.batteryMonitorTimer?.invalidate()
+            self.batteryMonitorTimer = nil
+        }
     }
 
     private func connectToController() {
@@ -136,10 +153,10 @@ class PS4ControllerMonitor: ObservableObject {
             // Set connection state immediately for instant UI update
             self.isConnected = true
 
-            print("PS4Controller: Connected to controller: \(controller.vendorName ?? "Unknown")")
-            print("PS4Controller: Product category: \(controller.productCategory)")
-            print("PS4Controller: Controller type: \(String(describing: type(of: controller)))")
-            print("PS4Controller: Has battery: \(controller.battery != nil)")
+            Self.logger.info("Connected to controller: \(controller.vendorName ?? "Unknown")")
+            Self.logger.info("Product category: \(controller.productCategory)")
+            Self.logger.debug("Controller type: \(String(describing: type(of: controller)))")
+            Self.logger.debug("Has battery: \(controller.battery != nil)")
 
             // Check physical input profile
             if #available(macOS 11.3, *) {
@@ -164,18 +181,20 @@ class PS4ControllerMonitor: ObservableObject {
                 // Special handling for PS4 controllers that report 0 battery with unknown state
                 // This is common for DualShock 4 controllers on macOS
                 if level == 0 && state == .unknown {
-                    print("PS4Controller: DualShock 4 battery reporting limitation detected")
-                    print("PS4Controller: Assuming medium battery level for display purposes")
-                    // Set a medium level for display since we can't get real data
-                    self.batteryLevel = 0.5  // Show as 50%
-                    self.batteryState = .discharging  // Assume normal state
+                    Self.logger.info("Battery information unavailable (common for DualShock 4 on macOS)")
+                    // Mark battery as unavailable instead of faking data
+                    self.batteryLevel = nil
+                    self.batteryState = .unknown
+                    self.batteryIsUnavailable = true
                 } else {
                     self.batteryLevel = level
                     self.batteryState = state
+                    self.batteryIsUnavailable = false
                 }
             } else {
                 self.batteryLevel = nil
                 self.batteryState = .unknown
+                self.batteryIsUnavailable = true
                 print("PS4Controller: No battery information available")
             }
 
@@ -247,7 +266,7 @@ class PS4ControllerMonitor: ObservableObject {
 
         // Monitor battery changes with a timer
         // Check every 30 seconds for battery updates
-        Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+        batteryMonitorTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 // Only log if battery level changes
                 self?.updateBatteryStatus()
@@ -382,7 +401,27 @@ class PS4ControllerMonitor: ObservableObject {
         #endif
     }
 
+    // MARK: - Computed Properties for UI
+
+    var connectionStatusDescription: String {
+        if isConnected {
+            if batteryIsUnavailable {
+                return "PS4 Controller Connected - Battery: Unknown"
+            }
+
+            if let level = batteryLevel {
+                let percentage = Int(level * 100)
+                let stateText = batteryState == .charging ? " (Charging)" :
+                               batteryState == .full ? " (Full)" : ""
+                return "PS4 Controller Connected - Battery: \(percentage)%\(stateText)"
+            }
+            return "PS4 Controller Connected"
+        }
+        return "No PS4 Controller - Press to view panel"
+    }
+
     deinit {
+        batteryMonitorTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
 }

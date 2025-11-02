@@ -142,7 +142,8 @@ struct ContentView: View {
                         PS4BatteryIndicator(
                             level: ps4Controller.monitor.batteryLevel ?? 0,
                             state: ps4Controller.monitor.batteryState,
-                            isConnected: ps4Controller.monitor.isConnected
+                            isConnected: ps4Controller.monitor.isConnected,
+                            batteryIsUnavailable: ps4Controller.monitor.batteryIsUnavailable
                         )
                     }
                 }
@@ -184,22 +185,7 @@ struct ContentView: View {
     }
 
     var batteryTooltip: String {
-        if ps4Controller.monitor.isConnected {
-            if let level = ps4Controller.monitor.batteryLevel {
-                let percentage = Int(level * 100)
-                let stateText = ps4Controller.monitor.batteryState == .charging ? " (Charging)" :
-                               ps4Controller.monitor.batteryState == .full ? " (Full)" : ""
-
-                // Check if this is an estimated value (DualShock 4 workaround)
-                if level == 0.5 && ps4Controller.monitor.batteryState == .discharging {
-                    return "PS4 Controller Connected - Battery: ~\(percentage)%\(stateText) (Estimated)"
-                }
-
-                return "PS4 Controller Connected - Battery: \(percentage)%\(stateText)"
-            }
-            return "PS4 Controller Connected"
-        }
-        return "No PS4 Controller - Press to view panel"
+        return ps4Controller.monitor.connectionStatusDescription
     }
 }
 
@@ -208,6 +194,7 @@ struct PS4BatteryIndicator: View {
     let level: Float
     let state: GCDeviceBattery.State
     let isConnected: Bool
+    let batteryIsUnavailable: Bool
 
     var body: some View {
         HStack(spacing: 1) {
@@ -217,8 +204,14 @@ struct PS4BatteryIndicator: View {
                     .stroke(batteryColor.opacity(0.5), lineWidth: 1)
                     .frame(width: 22, height: 8)
 
-                // Battery fill (show when connected and has level OR is full)
-                if isConnected && (level > 0 || state == .full) {
+                // Show question mark if battery is unavailable
+                if isConnected && batteryIsUnavailable {
+                    Text("?")
+                        .font(.system(size: 7))
+                        .foregroundColor(batteryColor.opacity(0.7))
+                        .frame(width: 20, height: 6)
+                } else if isConnected && (level > 0 || state == .full) {
+                    // Battery fill (show when connected and has level OR is full)
                     RoundedRectangle(cornerRadius: 0.5)
                         .fill(batteryColor)
                         // If full but level is 0, show as full
@@ -248,12 +241,11 @@ struct PS4BatteryIndicator: View {
         if !isConnected {
             return .gray
         }
+        if batteryIsUnavailable {
+            return .gray  // Show gray for unknown battery
+        }
         if state == .charging {
             return .yellow
-        }
-        // Show blue/cyan for estimated battery (DualShock 4 workaround)
-        if level == 0.5 && state == .discharging {
-            return .cyan
         }
         if level > 0.5 {
             return .green
@@ -262,7 +254,6 @@ struct PS4BatteryIndicator: View {
         } else if level > 0 {
             return .red
         } else {
-            // If level is exactly 0 but connected, assume unknown/estimated
             return .gray
         }
     }

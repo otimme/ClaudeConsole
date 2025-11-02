@@ -161,9 +161,16 @@ struct KeyCommand: Codable, Equatable {
         if modifiers.contains(.option) { modifierCode += 2 }
         if modifiers.contains(.control) { modifierCode += 4 }
 
-        sequence.append(";".data(using: .ascii)!)
-        sequence.append("\(modifierCode)".data(using: .ascii)!)
-        sequence.append(direction.data(using: .ascii)!)
+        // Safely convert strings to ASCII data
+        guard let semicolon = ";".data(using: .ascii),
+              let code = "\(modifierCode)".data(using: .ascii),
+              let dir = direction.data(using: .ascii) else {
+            return nil
+        }
+
+        sequence.append(semicolon)
+        sequence.append(code)
+        sequence.append(dir)
 
         return sequence
     }
@@ -236,7 +243,9 @@ class PS4ButtonMapping: ObservableObject, Codable {
 
     required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        mappings = try container.decode([PS4Button: KeyCommand].self, forKey: .mappings)
+        let decodedMappings = try container.decode([PS4Button: KeyCommand].self, forKey: .mappings)
+        // Initialize the @Published property directly to ensure proper notification
+        self.mappings = decodedMappings
     }
 
     func encode(to encoder: Encoder) throws {
@@ -248,16 +257,32 @@ class PS4ButtonMapping: ObservableObject, Codable {
     private static let mappingsKey = "PS4ControllerMappings"
 
     static func loadMappings() -> [PS4Button: KeyCommand] {
-        if let data = UserDefaults.standard.data(forKey: mappingsKey),
-           let decoded = try? JSONDecoder().decode([PS4Button: KeyCommand].self, from: data) {
-            return decoded
+        guard let data = UserDefaults.standard.data(forKey: mappingsKey) else {
+            // No saved mappings, use defaults
+            return defaultMappings
         }
-        return defaultMappings
+
+        do {
+            let decoded = try JSONDecoder().decode([PS4Button: KeyCommand].self, from: data)
+            return decoded
+        } catch {
+            print("ERROR: Failed to load PS4 controller mappings: \(error)")
+            print("INFO: Falling back to default mappings")
+            return defaultMappings
+        }
     }
 
     func saveMappings() {
-        if let encoded = try? JSONEncoder().encode(mappings) {
+        do {
+            let encoded = try JSONEncoder().encode(mappings)
             UserDefaults.standard.set(encoded, forKey: Self.mappingsKey)
+        } catch {
+            print("ERROR: Failed to save PS4 controller mappings: \(error)")
+            // Consider posting a notification for UI to show error
+            NotificationCenter.default.post(
+                name: Notification.Name("PS4MappingSaveError"),
+                object: error
+            )
         }
     }
 
