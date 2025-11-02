@@ -252,8 +252,23 @@ struct ActionEditorView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .onChange(of: selectedActionType) { _ in
-                    loadCurrentSettings()
+                .onChange(of: selectedActionType) { newType in
+                    // Only load current settings if the saved action matches the selected type
+                    if let action = currentAction {
+                        switch (action, newType) {
+                        case (.keyCommand, .keyCommand),
+                             (.textMacro, .textMacro),
+                             (.applicationCommand, .applicationCommand),
+                             (.shellCommand, .shellCommand):
+                            loadCurrentSettings()
+                        default:
+                            // Reset to defaults when switching to a different type
+                            resetToDefaults(for: newType)
+                        }
+                    } else {
+                        // No saved action, use defaults
+                        resetToDefaults(for: newType)
+                    }
                 }
             }
             .padding(.horizontal)
@@ -337,7 +352,11 @@ struct ActionEditorView: View {
     }
 
     private func loadCurrentSettings() {
-        guard let action = currentAction else { return }
+        guard let action = currentAction else {
+            // No current action, reset to defaults for the selected type
+            resetToDefaults(for: selectedActionType)
+            return
+        }
 
         switch action {
         case .keyCommand(let cmd):
@@ -359,6 +378,20 @@ struct ActionEditorView: View {
 
         default:
             break // Handle sequence and system commands later
+        }
+    }
+
+    private func resetToDefaults(for actionType: ActionType) {
+        switch actionType {
+        case .keyCommand:
+            keyCommand = KeyCommand(key: "", modifiers: [])
+        case .textMacro:
+            textMacro = ""
+            autoEnter = true
+        case .applicationCommand:
+            selectedAppCommand = .showUsage
+        case .shellCommand:
+            shellCommand = ""
         }
     }
 
