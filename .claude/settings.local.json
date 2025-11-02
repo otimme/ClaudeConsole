@@ -4,7 +4,10 @@
       "WebSearch",
       "Bash(sqlite3:*)",
       "Bash(killall:*)",
-      "Bash(xcodebuild:*)"
+      "Bash(xcodebuild:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh pr diff:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
