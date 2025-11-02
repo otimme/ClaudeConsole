@@ -19,6 +19,7 @@ class PS4ControllerController: ObservableObject {
 
     let monitor = PS4ControllerMonitor()
     let mapping = PS4ButtonMapping()
+    let appCommandExecutor = AppCommandExecutor()
 
     @Published var isEnabled = true
     @Published var showVisualizer = true
@@ -26,6 +27,21 @@ class PS4ControllerController: ObservableObject {
     private weak var terminalController: LocalProcessTerminalView?
     private var cancellables = Set<AnyCancellable>()
     private var terminalControllerObserver: NSObjectProtocol?
+
+    // CRITICAL FIX: Push-to-talk state machine implementation
+    // Previous implementation used simple `pushToTalkButton: PS4Button?` which had edge cases:
+    // - Controller disconnects during recording → state never cleared
+    // - Two buttons mapped to push-to-talk → only first button tracked
+    // - Recording fails to start → state set but not recording
+    // - Recording fails to stop → state cleared but still recording
+    //
+    // New state machine properly handles all edge cases with explicit states:
+    private enum PushToTalkState {
+        case idle                                          // Not recording
+        case recording(button: PS4Button, startedAt: Date) // Recording in progress, tracks which button
+        case transcribing                                  // Recording stopped, transcription in progress
+    }
+    private var pushToTalkState: PushToTalkState = .idle
 
     init() {
         // Forward monitor's objectWillChange to trigger UI updates
@@ -83,27 +99,122 @@ class PS4ControllerController: ObservableObject {
 
             // Get the mapped action for this button
             if let action = self.mapping.getAction(for: button) {
-                self.executeButtonAction(action)
+                // Check if this is a push-to-talk action
+                if case .applicationCommand(.pushToTalkSpeech) = action {
+                    self.handlePushToTalkPress(button: button)
+                } else {
+                    // Execute action normally
+                    self.executeButtonAction(action)
+                }
 
                 // Optional: Provide haptic feedback
                 self.monitor.startVibration(intensity: 0.5, duration: 0.05)
             }
         }
 
-        // Handle button releases (if needed for certain commands)
+        // Handle button releases
         monitor.onButtonReleased = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
 
-            // Handle special cases for hold-and-release behaviors
-            // For example, implementing key repeat for held buttons
-            switch button {
-            case .dpadUp, .dpadDown, .dpadLeft, .dpadRight:
-                // Could stop key repeat here if implemented
-                break
-            default:
-                break
+            // Check if this is a push-to-talk button being released
+            self.handlePushToTalkRelease(button: button)
+        }
+
+        // Monitor controller disconnection to cleanup push-to-talk state
+        monitor.$isConnected
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isConnected in
+                if !isConnected {
+                    self?.handleControllerDisconnected()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Push-to-Talk State Management
+    // FIX: Proper state machine with error handling and edge case coverage
+
+    private func handlePushToTalkPress(button: PS4Button) {
+        // FIX: State guard - only allow starting if idle (prevents duplicate recordings)
+        guard case .idle = pushToTalkState else {
+            os_log("Cannot start push-to-talk: already in state %{public}@", log: .default, type: .info, String(describing: pushToTalkState))
+            return
+        }
+
+        // FIX: Validate speech controller is ready before attempting to start
+        // Previous implementation had no validation, leading to silent failures
+        guard let speech = appCommandExecutor.speechController, speech.isReady else {
+            os_log("Cannot start push-to-talk: speech controller not ready", log: .default, type: .error)
+            showConnectionNotification(connected: false) // User feedback via notification
+            return
+        }
+
+        // Transition to recording state
+        pushToTalkState = .recording(button: button, startedAt: Date())
+        appCommandExecutor.execute(.triggerSpeechToText)
+
+        // FIX: Async verification that recording actually started
+        // If recording fails to start (mic permissions, etc.), we reset state to prevent inconsistency
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self = self else { return }
+
+            // If still in recording state but not actually recording, reset
+            if case .recording = self.pushToTalkState,
+               let speech = self.appCommandExecutor.speechController,
+               !speech.isRecording {
+                os_log("Push-to-talk failed to start recording - resetting state", log: .default, type: .error)
+                self.pushToTalkState = .idle
             }
         }
+    }
+
+    private func handlePushToTalkRelease(button: PS4Button) {
+        // FIX: Only handle release if this button is currently recording
+        // This prevents other buttons from interfering with active recording
+        guard case .recording(let recordingButton, _) = pushToTalkState,
+              recordingButton == button else {
+            return
+        }
+
+        // Transition to transcribing state
+        pushToTalkState = .transcribing
+        appCommandExecutor.execute(.stopSpeechToText)
+
+        // FIX: Safety timeout fallback (30 seconds)
+        // If transcription hangs or fails, automatically reset to idle state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30.0) { [weak self] in
+            guard let self = self else { return }
+            if case .transcribing = self.pushToTalkState {
+                os_log("Push-to-talk transcription timeout - resetting to idle", log: .default, type: .info)
+                self.pushToTalkState = .idle
+            }
+        }
+
+        // FIX: Monitor transcription completion via Combine
+        // When transcription finishes, automatically return to idle state
+        if let speech = appCommandExecutor.speechController {
+            speech.$isTranscribing
+                .receive(on: DispatchQueue.main)
+                .filter { !$0 } // Wait for transcription to finish
+                .prefix(1) // Only take the first completion
+                .sink { [weak self] _ in
+                    self?.pushToTalkState = .idle
+                }
+                .store(in: &cancellables)
+        }
+    }
+
+    private func handleControllerDisconnected() {
+        // FIX: Critical edge case - controller disconnects during recording
+        // Force stop any active recording when controller disconnects to prevent:
+        // - Microphone staying open indefinitely
+        // - Battery drain from continued recording
+        // - State inconsistency
+        if case .recording = pushToTalkState {
+            os_log("Controller disconnected during push-to-talk - stopping recording", log: .default, type: .info)
+            appCommandExecutor.execute(.stopSpeechToText)
+        }
+        pushToTalkState = .idle
     }
 
     // Execute different types of button actions
@@ -193,48 +304,22 @@ class PS4ControllerController: ObservableObject {
     }
 
     private func executeApplicationCommand(_ command: AppCommand) {
-        switch command {
-        case .triggerSpeechToText:
-            // TODO: Integrate with SpeechToTextController
-            print("Speech-to-text trigger requested")
-            NotificationCenter.default.post(name: Notification.Name("PS4TriggerSpeechToText"), object: nil)
+        // FIX: Removed duplicate command execution logic
+        // Previous implementation had duplicate code for clipboard, terminal, and Claude commands
+        // both here AND in AppCommandExecutor, violating DRY principle and creating maintenance burden.
+        //
+        // Now: Single source of truth - all commands delegated to AppCommandExecutor
+        // Exception: togglePS4Panel affects local showVisualizer state
 
-        case .stopSpeechToText:
-            // TODO: Integrate with SpeechToTextController
-            print("Speech-to-text stop requested")
-            NotificationCenter.default.post(name: Notification.Name("PS4StopSpeechToText"), object: nil)
-
-        case .togglePS4Panel:
+        // Special case: togglePS4Panel affects our local showVisualizer state
+        if command == .togglePS4Panel {
             showVisualizer.toggle()
-
-        case .toggleStatusBar:
-            // TODO: Implement status bar toggle
-            NotificationCenter.default.post(name: Notification.Name("PS4ToggleStatusBar"), object: nil)
-
-        case .copyToClipboard:
-            // Send Cmd+C to terminal
-            sendCommandToTerminal(KeyCommand(key: "c", modifiers: .command))
-
-        case .pasteFromClipboard:
-            // Send Cmd+V to terminal
-            sendCommandToTerminal(KeyCommand(key: "v", modifiers: .command))
-
-        case .clearTerminal:
-            // Send Ctrl+L to clear terminal
-            sendCommandToTerminal(KeyCommand(key: "l", modifiers: .control))
-
-        case .showUsage:
-            // Send /usage command to Claude
-            sendTextMacroToTerminal("/usage", autoEnter: true)
-
-        case .showContext:
-            // Send /context command to Claude
-            sendTextMacroToTerminal("/context", autoEnter: true)
-
-        case .refreshStats:
-            // Post notification to refresh stats
-            NotificationCenter.default.post(name: Notification.Name("PS4RefreshStats"), object: nil)
+            return
         }
+
+        // FIX: Delegate all other commands to AppCommandExecutor for centralized execution
+        // This eliminates code duplication and ensures consistent behavior
+        appCommandExecutor.execute(command)
     }
 
     private func executeSystemCommand(_ command: SystemCommand) {
@@ -490,9 +575,24 @@ class PS4ControllerController: ObservableObject {
     }
 
     deinit {
+        // FIX: Comprehensive cleanup to prevent resource leaks
+
+        // Cleanup notification observers
         if let observer = terminalControllerObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+
+        // FIX: Stop any active recording to prevent microphone staying open
+        // Critical for battery life and privacy
+        if case .recording = pushToTalkState {
+            os_log("Controller deallocating during push-to-talk - stopping recording", log: .default, type: .info)
+            appCommandExecutor.execute(.stopSpeechToText)
+        }
+
+        // FIX: Clear callbacks to break reference cycles
+        // Without this, monitor could hold strong reference to self via closures
+        monitor.onButtonPressed = nil
+        monitor.onButtonReleased = nil
     }
 }
 

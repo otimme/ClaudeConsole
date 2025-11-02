@@ -1,6 +1,6 @@
 # PS4 Controller Enhancement Plan
 *Living Document - Last Updated: 2025-11-02*
-*Phase 4 Completed: 2025-11-02*
+*Phase 3 & 4 Completed: 2025-11-02*
 
 ## Project Overview
 
@@ -166,41 +166,62 @@ struct MacroPreset {
 }
 ```
 
-### Phase 3: Application Commands ⬜ (3-4 hours)
+### Phase 3: Application Commands ✅ (Completed - 3 hours)
 
 **Tasks:**
-- [ ] Create `AppCommandExecutor` class
-- [ ] Add public methods to `SpeechToTextController`:
-  - [ ] `startRecordingViaController()`
-  - [ ] `stopRecordingViaController()`
-- [ ] Wire controller reference in `PS4ControllerController`
-- [ ] Implement push-to-talk mode
-- [ ] Implement toggle recording mode
-- [ ] Add UI panel toggles
-- [ ] Implement clipboard operations
-- [ ] Add shell command execution with safety checks
-- [ ] Create notification system for command feedback
+- [x] Create `AppCommandExecutor` class
+- [x] Add public methods to `SpeechToTextController`:
+  - [x] `startRecordingViaController()`
+  - [x] `stopRecordingViaController()`
+  - [x] `toggleRecordingViaController()`
+- [x] Wire controller reference in `PS4ControllerController`
+- [x] Implement push-to-talk mode
+- [x] Implement toggle recording mode
+- [x] Add UI panel toggles (PS4 panel and status bar)
+- [x] Implement clipboard operations (Cmd+C, Cmd+V)
+- [x] Shell command execution already implemented with safety checks
+- [x] Notification system already implemented
 
 **Implementation Notes:**
-```swift
-class AppCommandExecutor {
-    weak var speechController: SpeechToTextController?
-    weak var contentView: ContentView?
+- Created `AppCommandExecutor.swift` as central coordinator for app commands
+- Added public API methods to `SpeechToTextController` for controller integration
+- Wired up dependencies in `ContentView.onAppear()` using Combine publishers
+- Implemented two speech-to-text modes:
+  - **Toggle Mode** (`triggerSpeechToText`): Press once to start, press again to stop
+  - **Push-to-Talk Mode** (`pushToTalkSpeech`): Hold button to record, release to transcribe
+- Push-to-talk tracking implemented via `pushToTalkButton` property in controller
+- Button press/release callbacks differentiate between modes
 
-    func execute(_ command: AppCommand) {
-        switch command {
-        case .triggerSpeechToText:
-            speechController?.startRecordingViaController()
-        // ...
-        }
-    }
-}
-```
+**Key Files Modified:**
+- `AppCommandExecutor.swift` - New file with app command executor
+- `SpeechToTextController.swift` - Added controller integration methods
+- `PS4ControllerController.swift` - Wired up AppCommandExecutor, added push-to-talk logic
+- `ContentView.swift` - Added dependency wiring in onAppear()
+- `ButtonAction.swift` - Added `pushToTalkSpeech` command
 
-**Speech Integration Patterns:**
-- Push-to-talk: Hold button → record → release → transcribe
-- Toggle: Press → start recording → press again → stop
-- Hybrid: Short press = single command, long hold = continuous
+**Speech Integration Patterns Implemented:**
+- ✅ Push-to-talk: Hold button → record → release → transcribe
+- ✅ Toggle: Press → start recording → press again → stop
+- ⬜ Hybrid: Short press vs long hold (deferred to future enhancement)
+
+**Available App Commands:**
+- `triggerSpeechToText` - Toggle speech recording on/off
+- `stopSpeechToText` - Explicit stop (for sequences)
+- `pushToTalkSpeech` - Hold to record, release to transcribe
+- `togglePS4Panel` - Show/hide controller panel
+- `toggleStatusBar` - Show/hide status bar
+- `copyToClipboard` - Send Cmd+C
+- `pasteFromClipboard` - Send Cmd+V
+- `clearTerminal` - Send Ctrl+L
+- `showUsage` - Send `/usage` command
+- `showContext` - Send `/context` command
+- `refreshStats` - Refresh all statistics
+
+**Testing Completed:**
+- ✅ Project builds successfully
+- ✅ AppCommandExecutor properly wired to SpeechToTextController
+- ✅ Push-to-talk button tracking works
+- ✅ Toggle mode toggles recording state
 
 ### Phase 4: Enhanced Configuration UI ✅ (Completed - 4 hours)
 

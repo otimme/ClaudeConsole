@@ -8,6 +8,7 @@
 import Foundation
 import SwiftTerm
 import Combine
+import os.log
 
 class SpeechToTextController: ObservableObject {
     private let keyboardMonitor = KeyboardMonitor()
@@ -164,6 +165,73 @@ class SpeechToTextController: ObservableObject {
         case .microphonePermissionDenied:
             // User needs to grant permission in System Settings
             break
+        }
+    }
+
+    // MARK: - Controller Integration Methods
+
+    /// Start recording via controller (public API for PS4 controller integration)
+    ///
+    /// CRITICAL FIX: Thread-safe implementation
+    /// These methods are called from GameController framework callbacks which execute on
+    /// arbitrary background threads. Since they modify @Published properties (isRecording, etc.),
+    /// we MUST dispatch to main thread to avoid SwiftUI crashes from background thread updates.
+    ///
+    /// Thread-safe: Can be called from any thread, ensures main thread execution
+    func startRecordingViaController() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            guard self.isReady else {
+                os_log("Cannot start recording via controller: speech recognition not ready", log: .default, type: .error)
+                return
+            }
+
+            // Start recording
+            self.startRecording()
+            os_log("Recording started via PS4 controller", log: .default, type: .info)
+        }
+    }
+
+    /// Stop recording via controller (public API for PS4 controller integration)
+    /// Thread-safe: Can be called from any thread, ensures main thread execution
+    func stopRecordingViaController() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            guard self.isRecording else {
+                os_log("Cannot stop recording via controller: not currently recording", log: .default, type: .error)
+                return
+            }
+
+            // Stop recording and transcribe
+            self.stopRecordingAndTranscribe()
+            os_log("Recording stopped via PS4 controller", log: .default, type: .info)
+        }
+    }
+
+    /// Toggle recording state (for toggle mode) - public API for PS4 controller
+    ///
+    /// FIX: Added transcription guard to prevent state inconsistency
+    /// Previously, toggling while transcribing could cause undefined behavior.
+    ///
+    /// Thread-safe: Can be called from any thread, ensures main thread execution
+    func toggleRecordingViaController() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // FIX: Don't toggle if transcribing is in progress
+            // This prevents race conditions where user toggles during transcription
+            guard !self.isTranscribing else {
+                os_log("Cannot toggle recording while transcribing", log: .default, type: .info)
+                return
+            }
+
+            if self.isRecording {
+                self.stopRecordingViaController()
+            } else {
+                self.startRecordingViaController()
+            }
         }
     }
 
