@@ -13,7 +13,8 @@
       "Bash(git fetch:*)",
       "Bash(git merge:*)",
       "Bash(git push)",
-      "Bash(swift test_migration.swift:*)"
+      "Bash(swift test_migration.swift:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

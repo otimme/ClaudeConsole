@@ -141,11 +141,49 @@ class PS4ControllerController: ObservableObject {
             return
         }
 
-        var data = text.data(using: .utf8) ?? Data()
+        // Process escape sequences and special characters
+        let processedText = processEscapeSequences(text)
+
+        var data = processedText.data(using: .utf8) ?? Data()
         if autoEnter {
             data.append(Data([0x0D])) // Carriage return
         }
         terminal.send(data: ArraySlice(data))
+    }
+
+    private func processEscapeSequences(_ text: String) -> String {
+        var result = text
+
+        // Handle common escape sequences
+        result = result.replacingOccurrences(of: "\\n", with: "\n")
+        result = result.replacingOccurrences(of: "\\t", with: "\t")
+        result = result.replacingOccurrences(of: "\\r", with: "\r")
+        result = result.replacingOccurrences(of: "\\\"", with: "\"")
+        result = result.replacingOccurrences(of: "\\'", with: "'")
+        result = result.replacingOccurrences(of: "\\\\", with: "\\")
+
+        // Handle dynamic replacements
+        if result.contains("$(date)") {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            result = result.replacingOccurrences(of: "$(date)", with: formatter.string(from: Date()))
+        }
+
+        if result.contains("$(time)") {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            result = result.replacingOccurrences(of: "$(time)", with: formatter.string(from: Date()))
+        }
+
+        if result.contains("$(user)") {
+            result = result.replacingOccurrences(of: "$(user)", with: NSUserName())
+        }
+
+        if result.contains("$(pwd)") {
+            result = result.replacingOccurrences(of: "$(pwd)", with: FileManager.default.currentDirectoryPath)
+        }
+
+        return result
     }
 
     private func executeApplicationCommand(_ command: AppCommand) {

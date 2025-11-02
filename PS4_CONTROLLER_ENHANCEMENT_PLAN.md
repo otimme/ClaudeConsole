@@ -114,31 +114,45 @@ struct PS4ButtonMappingData: Codable {
 - ✅ New action types (text macros, app commands) functional
 - ✅ Presets updated with example mixed actions
 
-### Phase 2: Text Macros & Basic Actions ⬜ (2-3 hours)
+### Phase 2: Text Macros & Basic Actions ✅ (Completed - 1.5 hours)
 
 **Tasks:**
-- [ ] Add `sendTextMacroToTerminal()` method
-- [ ] Implement text escaping for special characters
-- [ ] Add auto-Enter option for macros
-- [ ] Create macro preset library
-- [ ] Add macro validation (max length, special chars)
-- [ ] Implement macro preview in UI
-- [ ] Add common presets:
-  - [ ] Git commands (status, add, commit, push)
-  - [ ] NPM commands (install, run dev, test)
-  - [ ] Docker commands (ps, logs, exec)
-  - [ ] Directory navigation
+- [x] Add `sendTextMacroToTerminal()` method
+- [x] Implement text escaping for special characters
+- [x] Add auto-Enter option for macros
+- [x] Create macro preset library
+- [x] Add macro validation (max length, special chars)
+- [x] Implement macro preview in UI
+- [x] Add common presets:
+  - [x] Git commands (status, add, commit, push)
+  - [x] NPM commands (install, run dev, test)
+  - [x] Docker commands (ps, logs, exec)
+  - [x] Directory navigation
+- [x] Create enhanced configuration UI with action type selection
+- [x] Build preset picker/browser interface
+- [x] Add dynamic replacements (date, time, user, pwd)
 
 **Implementation Notes:**
-```swift
-private func sendTextMacroToTerminal(_ text: String, autoEnter: Bool) {
-    var data = text.data(using: .utf8) ?? Data()
-    if autoEnter {
-        data.append(Data([0x0D])) // Carriage return
-    }
-    terminal?.send(data: ArraySlice(data))
-}
-```
+- Created comprehensive `PS4EnhancedConfigView` with modern UI
+- Implemented action type selector with segmented control
+- Built specialized editors for each action type
+- Added escape sequence processing (\\n, \\t, \\r, etc.)
+- Implemented dynamic replacements:
+  - `$(date)` - Current date/time
+  - `$(time)` - Current time
+  - `$(user)` - Username
+  - `$(pwd)` - Working directory
+- Created preset library with categorized macros
+- Added character count validation (1000 char limit)
+- Implemented action preview with color coding
+
+**Key Features Added:**
+- Text macro editor with live character count
+- Preset browser with search and category filtering
+- Special character reference guide
+- Dynamic text replacements for common variables
+- Auto-Enter toggle for each macro
+- Visual preview of action before saving
 
 **Preset Library Structure:**
 ```swift

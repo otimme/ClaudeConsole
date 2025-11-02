@@ -110,7 +110,8 @@ struct ContentView: View {
 
                     PS4ControllerView(
                         monitor: ps4Controller.monitor,
-                        mapping: ps4Controller.mapping
+                        mapping: ps4Controller.mapping,
+                        controller: ps4Controller
                     )
                     .frame(width: 400)
                     .background(Color(NSColor.windowBackgroundColor))
