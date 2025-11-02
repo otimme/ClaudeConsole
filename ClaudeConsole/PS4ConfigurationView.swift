@@ -55,7 +55,7 @@ struct PS4ConfigurationView: View {
                             },
                             onSave: { key, modifiers in
                                 let command = KeyCommand(key: key, modifiers: modifiers)
-                                mapping.setMapping(for: button, command: command)
+                                mapping.setMapping(for: button, action: .keyCommand(command))
                                 editingButton = nil
                             },
                             onCancel: {

@@ -210,26 +210,29 @@ struct KeyModifiers: Codable, OptionSet {
 
 // Main mapping class
 class PS4ButtonMapping: ObservableObject, Codable {
-    @Published var mappings: [PS4Button: KeyCommand]
+    @Published var mappings: [PS4Button: ButtonAction]
 
-    // Default mappings
-    static let defaultMappings: [PS4Button: KeyCommand] = [
-        .cross: KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: []),
-        .circle: KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: []),
-        .square: KeyCommand(key: KeyCommand.SpecialKey.space.rawValue, modifiers: []),
-        .triangle: KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: []),
-        .dpadUp: KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: []),
-        .dpadDown: KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: []),
-        .dpadLeft: KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: []),
-        .dpadRight: KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: []),
-        .l1: KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: []),
-        .r1: KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: []),
-        .l2: KeyCommand(key: KeyCommand.SpecialKey.home.rawValue, modifiers: []),
-        .r2: KeyCommand(key: KeyCommand.SpecialKey.end.rawValue, modifiers: []),
-        .options: KeyCommand(key: "c", modifiers: .control),
-        .share: KeyCommand(key: "z", modifiers: .control),
-        .l3: KeyCommand(key: "a", modifiers: .control),
-        .r3: KeyCommand(key: "e", modifiers: .control)
+    // Default mappings - now using ButtonAction
+    static let defaultMappings: [PS4Button: ButtonAction] = [
+        .cross: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])),
+        .circle: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])),
+        .square: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.space.rawValue, modifiers: [])),
+        .triangle: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: [])),
+        .dpadUp: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: [])),
+        .dpadDown: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: [])),
+        .dpadLeft: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: [])),
+        .dpadRight: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: [])),
+        .l1: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: [])),
+        .r1: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: [])),
+        .l2: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.home.rawValue, modifiers: [])),
+        .r2: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.end.rawValue, modifiers: [])),
+        .options: .keyCommand(KeyCommand(key: "c", modifiers: .control)),
+        .share: .keyCommand(KeyCommand(key: "z", modifiers: .control)),
+        .l3: .keyCommand(KeyCommand(key: "a", modifiers: .control)),
+        .r3: .keyCommand(KeyCommand(key: "e", modifiers: .control)),
+        // New example mappings showing different action types
+        .touchpad: .applicationCommand(.showUsage),
+        .psButton: .applicationCommand(.togglePS4Panel)
     ]
 
     init() {
@@ -243,7 +246,7 @@ class PS4ButtonMapping: ObservableObject, Codable {
 
     required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decodedMappings = try container.decode([PS4Button: KeyCommand].self, forKey: .mappings)
+        let decodedMappings = try container.decode([PS4Button: ButtonAction].self, forKey: .mappings)
         // Initialize the @Published property directly to ensure proper notification
         self.mappings = decodedMappings
     }
@@ -256,25 +259,50 @@ class PS4ButtonMapping: ObservableObject, Codable {
     // Persistence
     private static let mappingsKey = "PS4ControllerMappings"
 
-    static func loadMappings() -> [PS4Button: KeyCommand] {
+    static func loadMappings() -> [PS4Button: ButtonAction] {
         guard let data = UserDefaults.standard.data(forKey: mappingsKey) else {
             // No saved mappings, use defaults
             return defaultMappings
         }
 
         do {
-            let decoded = try JSONDecoder().decode([PS4Button: KeyCommand].self, from: data)
-            return decoded
+            // First try to decode as versioned data (v2)
+            let versionedData = try JSONDecoder().decode(PS4ButtonMappingData.self, from: data)
+            print("INFO: Loaded PS4 controller mappings (version \(versionedData.version))")
+            return versionedData.mappings
         } catch {
-            print("ERROR: Failed to load PS4 controller mappings: \(error)")
-            print("INFO: Falling back to default mappings")
-            return defaultMappings
+            // Fallback: Try to decode as legacy format (v1 - direct dictionary)
+            do {
+                let legacyMappings = try JSONDecoder().decode([PS4Button: KeyCommand].self, from: data)
+                print("INFO: Migrating legacy PS4 controller mappings to version 2")
+
+                // Migrate to new format
+                let migratedMappings = legacyMappings.mapValues { ButtonAction.keyCommand($0) }
+
+                // Save in new format for next time
+                let newData = PS4ButtonMappingData(version: PS4ButtonMappingData.currentVersion, mappings: migratedMappings)
+                if let encoded = try? JSONEncoder().encode(newData) {
+                    UserDefaults.standard.set(encoded, forKey: mappingsKey)
+                    print("INFO: Successfully migrated and saved mappings in new format")
+                }
+
+                return migratedMappings
+            } catch {
+                print("ERROR: Failed to load PS4 controller mappings: \(error)")
+                print("INFO: Falling back to default mappings")
+                return defaultMappings
+            }
         }
     }
 
     func saveMappings() {
         do {
-            let encoded = try JSONEncoder().encode(mappings)
+            // Save with version information
+            let versionedData = PS4ButtonMappingData(
+                version: PS4ButtonMappingData.currentVersion,
+                mappings: mappings
+            )
+            let encoded = try JSONEncoder().encode(versionedData)
             UserDefaults.standard.set(encoded, forKey: Self.mappingsKey)
         } catch {
             print("ERROR: Failed to save PS4 controller mappings: \(error)")
@@ -291,12 +319,28 @@ class PS4ButtonMapping: ObservableObject, Codable {
         saveMappings()
     }
 
-    func setMapping(for button: PS4Button, command: KeyCommand) {
-        mappings[button] = command
+    func setMapping(for button: PS4Button, action: ButtonAction) {
+        mappings[button] = action
         saveMappings()
     }
 
-    func getCommand(for button: PS4Button) -> KeyCommand? {
+    func getAction(for button: PS4Button) -> ButtonAction? {
         return mappings[button]
+    }
+
+    // Legacy support - convenience method for setting key commands
+    func setKeyCommand(for button: PS4Button, command: KeyCommand) {
+        setMapping(for: button, action: .keyCommand(command))
+    }
+
+    // Legacy support - get KeyCommand if the action is a key command
+    func getCommand(for button: PS4Button) -> KeyCommand? {
+        guard let action = mappings[button] else { return nil }
+        switch action {
+        case .keyCommand(let command):
+            return command
+        default:
+            return nil
+        }
     }
 }
