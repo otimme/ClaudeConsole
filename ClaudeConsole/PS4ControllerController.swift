@@ -9,8 +9,14 @@ import Foundation
 import SwiftTerm
 import Combine
 import AppKit
+import UserNotifications
+import os.log
 
 class PS4ControllerController: ObservableObject {
+    // Configuration constants
+    private static let sequenceActionDelay: TimeInterval = 0.1  // seconds between sequence actions
+    private static let notificationDisplayDelay: TimeInterval = 2.0  // seconds for notifications
+
     let monitor = PS4ControllerMonitor()
     let mapping = PS4ButtonMapping()
 
@@ -75,9 +81,9 @@ class PS4ControllerController: ObservableObject {
         monitor.onButtonPressed = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
 
-            // Get the mapped command for this button
-            if let command = self.mapping.getCommand(for: button) {
-                self.sendCommandToTerminal(command)
+            // Get the mapped action for this button
+            if let action = self.mapping.getAction(for: button) {
+                self.executeButtonAction(action)
 
                 // Optional: Provide haptic feedback
                 self.monitor.startVibration(intensity: 0.5, duration: 0.05)
@@ -100,6 +106,29 @@ class PS4ControllerController: ObservableObject {
         }
     }
 
+    // Execute different types of button actions
+    private func executeButtonAction(_ action: ButtonAction) {
+        switch action {
+        case .keyCommand(let command):
+            sendCommandToTerminal(command)
+
+        case .textMacro(let text, let autoEnter):
+            sendTextMacroToTerminal(text, autoEnter: autoEnter)
+
+        case .applicationCommand(let appCommand):
+            executeApplicationCommand(appCommand)
+
+        case .systemCommand(let systemCommand):
+            executeSystemCommand(systemCommand)
+
+        case .sequence(let actions):
+            executeSequence(actions)
+
+        case .shellCommand(let command):
+            executeShellCommand(command)
+        }
+    }
+
     private func sendCommandToTerminal(_ command: KeyCommand) {
         guard let terminal = terminalController else {
             print("Terminal controller not available")
@@ -109,6 +138,190 @@ class PS4ControllerController: ObservableObject {
         // Convert the command to terminal data
         if let data = command.toTerminalData() {
             terminal.send(data: ArraySlice(data))
+        }
+    }
+
+    private func sendTextMacroToTerminal(_ text: String, autoEnter: Bool) {
+        guard let terminal = terminalController else {
+            print("Terminal controller not available")
+            return
+        }
+
+        // Process escape sequences and special characters
+        let processedText = processEscapeSequences(text)
+
+        var data = processedText.data(using: .utf8) ?? Data()
+        if autoEnter {
+            data.append(Data([0x0D])) // Carriage return
+        }
+        terminal.send(data: ArraySlice(data))
+    }
+
+    private func processEscapeSequences(_ text: String) -> String {
+        var result = text
+
+        // Handle common escape sequences
+        result = result.replacingOccurrences(of: "\\n", with: "\n")
+        result = result.replacingOccurrences(of: "\\t", with: "\t")
+        result = result.replacingOccurrences(of: "\\r", with: "\r")
+        result = result.replacingOccurrences(of: "\\\"", with: "\"")
+        result = result.replacingOccurrences(of: "\\'", with: "'")
+        result = result.replacingOccurrences(of: "\\\\", with: "\\")
+
+        // Handle dynamic replacements
+        if result.contains("$(date)") {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            result = result.replacingOccurrences(of: "$(date)", with: formatter.string(from: Date()))
+        }
+
+        if result.contains("$(time)") {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            result = result.replacingOccurrences(of: "$(time)", with: formatter.string(from: Date()))
+        }
+
+        if result.contains("$(user)") {
+            result = result.replacingOccurrences(of: "$(user)", with: NSUserName())
+        }
+
+        if result.contains("$(pwd)") {
+            result = result.replacingOccurrences(of: "$(pwd)", with: FileManager.default.currentDirectoryPath)
+        }
+
+        return result
+    }
+
+    private func executeApplicationCommand(_ command: AppCommand) {
+        switch command {
+        case .triggerSpeechToText:
+            // TODO: Integrate with SpeechToTextController
+            print("Speech-to-text trigger requested")
+            NotificationCenter.default.post(name: Notification.Name("PS4TriggerSpeechToText"), object: nil)
+
+        case .stopSpeechToText:
+            // TODO: Integrate with SpeechToTextController
+            print("Speech-to-text stop requested")
+            NotificationCenter.default.post(name: Notification.Name("PS4StopSpeechToText"), object: nil)
+
+        case .togglePS4Panel:
+            showVisualizer.toggle()
+
+        case .toggleStatusBar:
+            // TODO: Implement status bar toggle
+            NotificationCenter.default.post(name: Notification.Name("PS4ToggleStatusBar"), object: nil)
+
+        case .copyToClipboard:
+            // Send Cmd+C to terminal
+            sendCommandToTerminal(KeyCommand(key: "c", modifiers: .command))
+
+        case .pasteFromClipboard:
+            // Send Cmd+V to terminal
+            sendCommandToTerminal(KeyCommand(key: "v", modifiers: .command))
+
+        case .clearTerminal:
+            // Send Ctrl+L to clear terminal
+            sendCommandToTerminal(KeyCommand(key: "l", modifiers: .control))
+
+        case .showUsage:
+            // Send /usage command to Claude
+            sendTextMacroToTerminal("/usage", autoEnter: true)
+
+        case .showContext:
+            // Send /context command to Claude
+            sendTextMacroToTerminal("/context", autoEnter: true)
+
+        case .refreshStats:
+            // Post notification to refresh stats
+            NotificationCenter.default.post(name: Notification.Name("PS4RefreshStats"), object: nil)
+        }
+    }
+
+    private func executeSystemCommand(_ command: SystemCommand) {
+        switch command {
+        case .switchApplication(let bundleId):
+            // TODO: Implement app switching via Accessibility API
+            print("Switch to app: \(bundleId)")
+
+        case .openURL(let url):
+            if let nsUrl = URL(string: url) {
+                NSWorkspace.shared.open(nsUrl)
+            }
+
+        case .runAppleScript(let script):
+            // TODO: Execute AppleScript safely
+            print("Execute AppleScript: \(script)")
+
+        case .takeScreenshot:
+            // Send Cmd+Shift+4 for screenshot
+            sendCommandToTerminal(KeyCommand(key: "4", modifiers: KeyModifiers(rawValue: KeyModifiers.command.rawValue | KeyModifiers.shift.rawValue)))
+
+        case .toggleFullscreen:
+            // Send Cmd+Ctrl+F for fullscreen
+            sendCommandToTerminal(KeyCommand(key: "f", modifiers: KeyModifiers(rawValue: KeyModifiers.command.rawValue | KeyModifiers.control.rawValue)))
+
+        case .minimizeWindow:
+            // Send Cmd+M to minimize
+            sendCommandToTerminal(KeyCommand(key: "m", modifiers: .command))
+        }
+    }
+
+    private func executeSequence(_ actions: [ButtonAction]) {
+        // Execute each action with a small delay between them
+        for (index, action) in actions.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * Self.sequenceActionDelay) { [weak self] in
+                self?.executeButtonAction(action)
+            }
+        }
+    }
+
+    private func executeShellCommand(_ command: String) {
+        // Validate shell command for dangerous patterns
+        let dangerousPatterns = [
+            "rm -rf /",
+            ":(){ :|:& };:",  // fork bomb
+            "mkfs",           // format filesystem
+            "dd if=/dev/zero",
+            "> /dev/sda",
+            "wget.*|.*sh",    // download and execute
+            "curl.*|.*sh",    // download and execute
+        ]
+
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for pattern in dangerousPatterns {
+            if trimmedCommand.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+                os_log("SECURITY: Blocked dangerous shell command: %{public}@", log: .default, type: .error, command)
+                showSecurityWarning(command: command)
+                return
+            }
+        }
+
+        // Log shell command execution for security audit
+        os_log("Executing shell command from PS4 controller: %{public}@", log: .default, type: .info, command)
+
+        // Send the shell command as a text macro with auto-enter
+        sendTextMacroToTerminal(trimmedCommand, autoEnter: true)
+    }
+
+    private func showSecurityWarning(command: String) {
+        let center = UNUserNotificationCenter.current()
+
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            guard granted, error == nil else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Security Warning"
+            content.body = "Blocked potentially dangerous command from PS4 controller"
+            content.sound = .defaultCritical
+
+            let request = UNNotificationRequest(
+                identifier: "ps4-security-warning-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+
+            center.add(request, withCompletionHandler: nil)
         }
     }
 
@@ -177,70 +390,103 @@ class PS4ControllerController: ObservableObject {
     }
 
     private func applyVimPreset() {
-        // Vim-friendly mappings
-        mapping.setMapping(for: .dpadUp, command: KeyCommand(key: "K", modifiers: []))
-        mapping.setMapping(for: .dpadDown, command: KeyCommand(key: "J", modifiers: []))
-        mapping.setMapping(for: .dpadLeft, command: KeyCommand(key: "H", modifiers: []))
-        mapping.setMapping(for: .dpadRight, command: KeyCommand(key: "L", modifiers: []))
-        mapping.setMapping(for: .cross, command: KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: []))
-        mapping.setMapping(for: .circle, command: KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: []))
-        mapping.setMapping(for: .square, command: KeyCommand(key: "I", modifiers: []))  // Insert mode
-        mapping.setMapping(for: .triangle, command: KeyCommand(key: "V", modifiers: []))  // Visual mode
-        mapping.setMapping(for: .l1, command: KeyCommand(key: "U", modifiers: .control))  // Page up
-        mapping.setMapping(for: .r1, command: KeyCommand(key: "D", modifiers: .control))  // Page down
-        mapping.setMapping(for: .l2, command: KeyCommand(key: "B", modifiers: []))  // Word back
-        mapping.setMapping(for: .r2, command: KeyCommand(key: "W", modifiers: []))  // Word forward
-        mapping.setMapping(for: .options, command: KeyCommand(key: ":", modifiers: []))  // Command mode
-        mapping.setMapping(for: .share, command: KeyCommand(key: "U", modifiers: []))  // Undo
+        // Vim-friendly mappings using ButtonAction
+        mapping.setMapping(for: .dpadUp, action: .keyCommand(KeyCommand(key: "k", modifiers: [])))
+        mapping.setMapping(for: .dpadDown, action: .keyCommand(KeyCommand(key: "j", modifiers: [])))
+        mapping.setMapping(for: .dpadLeft, action: .keyCommand(KeyCommand(key: "h", modifiers: [])))
+        mapping.setMapping(for: .dpadRight, action: .keyCommand(KeyCommand(key: "l", modifiers: [])))
+        mapping.setMapping(for: .cross, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])))
+        mapping.setMapping(for: .circle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])))
+        mapping.setMapping(for: .square, action: .keyCommand(KeyCommand(key: "i", modifiers: [])))  // Insert mode
+        mapping.setMapping(for: .triangle, action: .keyCommand(KeyCommand(key: "v", modifiers: [])))  // Visual mode
+        mapping.setMapping(for: .l1, action: .keyCommand(KeyCommand(key: "u", modifiers: .control)))  // Page up
+        mapping.setMapping(for: .r1, action: .keyCommand(KeyCommand(key: "d", modifiers: .control)))  // Page down
+        mapping.setMapping(for: .l2, action: .keyCommand(KeyCommand(key: "b", modifiers: [])))  // Word back
+        mapping.setMapping(for: .r2, action: .keyCommand(KeyCommand(key: "w", modifiers: [])))  // Word forward
+        mapping.setMapping(for: .options, action: .keyCommand(KeyCommand(key: ":", modifiers: [])))  // Command mode
+        mapping.setMapping(for: .share, action: .keyCommand(KeyCommand(key: "u", modifiers: [])))  // Undo
+        // Add some text macros for common vim commands
+        mapping.setMapping(for: .touchpad, action: .textMacro(text: ":wq", autoEnter: true))  // Save and quit
+        mapping.setMapping(for: .psButton, action: .textMacro(text: ":q!", autoEnter: true))  // Force quit
     }
 
     private func applyNavigationPreset() {
-        // Standard navigation mappings
-        mapping.setMapping(for: .dpadUp, command: KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: []))
-        mapping.setMapping(for: .dpadDown, command: KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: []))
-        mapping.setMapping(for: .dpadLeft, command: KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: []))
-        mapping.setMapping(for: .dpadRight, command: KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: []))
-        mapping.setMapping(for: .cross, command: KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: []))
-        mapping.setMapping(for: .circle, command: KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: []))
-        mapping.setMapping(for: .l1, command: KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: []))
-        mapping.setMapping(for: .r1, command: KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: []))
-        mapping.setMapping(for: .l2, command: KeyCommand(key: KeyCommand.SpecialKey.home.rawValue, modifiers: []))
-        mapping.setMapping(for: .r2, command: KeyCommand(key: KeyCommand.SpecialKey.end.rawValue, modifiers: []))
+        // Standard navigation mappings using ButtonAction
+        mapping.setMapping(for: .dpadUp, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: [])))
+        mapping.setMapping(for: .dpadDown, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: [])))
+        mapping.setMapping(for: .dpadLeft, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: [])))
+        mapping.setMapping(for: .dpadRight, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: [])))
+        mapping.setMapping(for: .cross, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])))
+        mapping.setMapping(for: .circle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])))
+        mapping.setMapping(for: .l1, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: [])))
+        mapping.setMapping(for: .r1, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: [])))
+        mapping.setMapping(for: .l2, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.home.rawValue, modifiers: [])))
+        mapping.setMapping(for: .r2, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.end.rawValue, modifiers: [])))
+        // Add app commands
+        mapping.setMapping(for: .touchpad, action: .applicationCommand(.showUsage))
+        mapping.setMapping(for: .psButton, action: .applicationCommand(.togglePS4Panel))
     }
 
     private func applyTerminalPreset() {
-        // Terminal-friendly mappings
-        mapping.setMapping(for: .cross, command: KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: []))
-        mapping.setMapping(for: .circle, command: KeyCommand(key: "C", modifiers: .control))  // Ctrl+C
-        mapping.setMapping(for: .square, command: KeyCommand(key: "Z", modifiers: .control))  // Ctrl+Z
-        mapping.setMapping(for: .triangle, command: KeyCommand(key: "D", modifiers: .control))  // Ctrl+D
-        mapping.setMapping(for: .l1, command: KeyCommand(key: "A", modifiers: .control))  // Beginning of line
-        mapping.setMapping(for: .r1, command: KeyCommand(key: "E", modifiers: .control))  // End of line
-        mapping.setMapping(for: .l2, command: KeyCommand(key: "U", modifiers: .control))  // Clear line
-        mapping.setMapping(for: .r2, command: KeyCommand(key: "L", modifiers: .control))  // Clear screen
-        mapping.setMapping(for: .options, command: KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: []))
-        mapping.setMapping(for: .share, command: KeyCommand(key: "R", modifiers: .control))  // Reverse search
+        // Terminal-friendly mappings with mix of key commands and text macros
+        mapping.setMapping(for: .cross, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])))
+        mapping.setMapping(for: .circle, action: .keyCommand(KeyCommand(key: "c", modifiers: .control)))  // Ctrl+C
+        mapping.setMapping(for: .square, action: .keyCommand(KeyCommand(key: "z", modifiers: .control)))  // Ctrl+Z
+        mapping.setMapping(for: .triangle, action: .keyCommand(KeyCommand(key: "d", modifiers: .control)))  // Ctrl+D
+        mapping.setMapping(for: .l1, action: .keyCommand(KeyCommand(key: "a", modifiers: .control)))  // Beginning of line
+        mapping.setMapping(for: .r1, action: .keyCommand(KeyCommand(key: "e", modifiers: .control)))  // End of line
+        mapping.setMapping(for: .l2, action: .keyCommand(KeyCommand(key: "u", modifiers: .control)))  // Clear line
+        mapping.setMapping(for: .r2, action: .keyCommand(KeyCommand(key: "l", modifiers: .control)))  // Clear screen
+        mapping.setMapping(for: .options, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: [])))
+        mapping.setMapping(for: .share, action: .keyCommand(KeyCommand(key: "r", modifiers: .control)))  // Reverse search
+        // Add common terminal commands as text macros
+        mapping.setMapping(for: .touchpad, action: .textMacro(text: "ls -la", autoEnter: true))
+        mapping.setMapping(for: .psButton, action: .textMacro(text: "git status", autoEnter: true))
     }
 
     private func showConnectionNotification(connected: Bool) {
-        let notification = NSUserNotification()
-        notification.title = "PS4 Controller"
-        notification.informativeText = connected ? "Controller connected" : "Controller disconnected"
-        notification.soundName = NSUserNotificationDefaultSoundName
+        let center = UNUserNotificationCenter.current()
 
-        if connected {
-            if let batteryLevel = monitor.batteryLevel {
-                let percentage = Int(batteryLevel * 100)
-                // Check if this is an estimated value (DualShock 4 workaround)
-                if batteryLevel == 0.5 && monitor.batteryState == .discharging {
-                    notification.informativeText = "Controller connected - Battery: ~\(percentage)% (Estimated)"
+        // Request authorization if needed
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error = error {
+                os_log("Failed to request notification authorization: %{public}@", log: .default, type: .error, error.localizedDescription)
+                return
+            }
+
+            guard granted else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "PS4 Controller"
+            content.sound = .default
+
+            if connected {
+                if let batteryLevel = self.monitor.batteryLevel {
+                    let percentage = Int(batteryLevel * 100)
+                    if batteryLevel == 0 && self.monitor.batteryState == .unknown {
+                        content.body = "Controller connected - Battery: Unknown"
+                    } else {
+                        content.body = "Controller connected - Battery: \(percentage)%"
+                    }
                 } else {
-                    notification.informativeText = "Controller connected - Battery: \(percentage)%"
+                    content.body = "Controller connected"
+                }
+            } else {
+                content.body = "Controller disconnected"
+            }
+
+            let request = UNNotificationRequest(
+                identifier: "ps4-controller-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+
+            center.add(request) { error in
+                if let error = error {
+                    os_log("Failed to deliver notification: %{public}@", log: .default, type: .error, error.localizedDescription)
                 }
             }
         }
-
-        NSUserNotificationCenter.default.deliver(notification)
     }
 
     deinit {

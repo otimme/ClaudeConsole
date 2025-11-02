@@ -10,6 +10,7 @@ import SwiftUI
 struct PS4ControllerView: View {
     @ObservedObject var monitor: PS4ControllerMonitor
     @ObservedObject var mapping: PS4ButtonMapping
+    @ObservedObject var controller: PS4ControllerController
     @State private var showConfiguration = false
     @State private var configuringButton: PS4Button?
 
@@ -134,7 +135,7 @@ struct PS4ControllerView: View {
         .padding()
         .background(Color(NSColor.windowBackgroundColor))
         .sheet(isPresented: $showConfiguration) {
-            PS4ConfigurationView(mapping: mapping)
+            PS4EnhancedConfigView(mapping: mapping, controller: controller)
         }
     }
 }
