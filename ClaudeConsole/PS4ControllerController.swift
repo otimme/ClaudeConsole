@@ -9,8 +9,14 @@ import Foundation
 import SwiftTerm
 import Combine
 import AppKit
+import UserNotifications
+import os.log
 
 class PS4ControllerController: ObservableObject {
+    // Configuration constants
+    private static let sequenceActionDelay: TimeInterval = 0.1  // seconds between sequence actions
+    private static let notificationDisplayDelay: TimeInterval = 2.0  // seconds for notifications
+
     let monitor = PS4ControllerMonitor()
     let mapping = PS4ButtonMapping()
 
@@ -263,15 +269,60 @@ class PS4ControllerController: ObservableObject {
     private func executeSequence(_ actions: [ButtonAction]) {
         // Execute each action with a small delay between them
         for (index, action) in actions.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.1) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * Self.sequenceActionDelay) { [weak self] in
                 self?.executeButtonAction(action)
             }
         }
     }
 
     private func executeShellCommand(_ command: String) {
+        // Validate shell command for dangerous patterns
+        let dangerousPatterns = [
+            "rm -rf /",
+            ":(){ :|:& };:",  // fork bomb
+            "mkfs",           // format filesystem
+            "dd if=/dev/zero",
+            "> /dev/sda",
+            "wget.*|.*sh",    // download and execute
+            "curl.*|.*sh",    // download and execute
+        ]
+
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for pattern in dangerousPatterns {
+            if trimmedCommand.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+                os_log("SECURITY: Blocked dangerous shell command: %{public}@", log: .default, type: .error, command)
+                showSecurityWarning(command: command)
+                return
+            }
+        }
+
+        // Log shell command execution for security audit
+        os_log("Executing shell command from PS4 controller: %{public}@", log: .default, type: .info, command)
+
         // Send the shell command as a text macro with auto-enter
-        sendTextMacroToTerminal(command, autoEnter: true)
+        sendTextMacroToTerminal(trimmedCommand, autoEnter: true)
+    }
+
+    private func showSecurityWarning(command: String) {
+        let center = UNUserNotificationCenter.current()
+
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            guard granted, error == nil else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Security Warning"
+            content.body = "Blocked potentially dangerous command from PS4 controller"
+            content.sound = .defaultCritical
+
+            let request = UNNotificationRequest(
+                identifier: "ps4-security-warning-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+
+            center.add(request, withCompletionHandler: nil)
+        }
     }
 
     // Enable/disable controller input
@@ -394,24 +445,48 @@ class PS4ControllerController: ObservableObject {
     }
 
     private func showConnectionNotification(connected: Bool) {
-        let notification = NSUserNotification()
-        notification.title = "PS4 Controller"
-        notification.informativeText = connected ? "Controller connected" : "Controller disconnected"
-        notification.soundName = NSUserNotificationDefaultSoundName
+        let center = UNUserNotificationCenter.current()
 
-        if connected {
-            if let batteryLevel = monitor.batteryLevel {
-                let percentage = Int(batteryLevel * 100)
-                // Check if this is an estimated value (DualShock 4 workaround)
-                if batteryLevel == 0.5 && monitor.batteryState == .discharging {
-                    notification.informativeText = "Controller connected - Battery: ~\(percentage)% (Estimated)"
+        // Request authorization if needed
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error = error {
+                os_log("Failed to request notification authorization: %{public}@", log: .default, type: .error, error.localizedDescription)
+                return
+            }
+
+            guard granted else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "PS4 Controller"
+            content.sound = .default
+
+            if connected {
+                if let batteryLevel = self.monitor.batteryLevel {
+                    let percentage = Int(batteryLevel * 100)
+                    if batteryLevel == 0 && self.monitor.batteryState == .unknown {
+                        content.body = "Controller connected - Battery: Unknown"
+                    } else {
+                        content.body = "Controller connected - Battery: \(percentage)%"
+                    }
                 } else {
-                    notification.informativeText = "Controller connected - Battery: \(percentage)%"
+                    content.body = "Controller connected"
+                }
+            } else {
+                content.body = "Controller disconnected"
+            }
+
+            let request = UNNotificationRequest(
+                identifier: "ps4-controller-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+
+            center.add(request) { error in
+                if let error = error {
+                    os_log("Failed to deliver notification: %{public}@", log: .default, type: .error, error.localizedDescription)
                 }
             }
         }
-
-        NSUserNotificationCenter.default.deliver(notification)
     }
 
     deinit {

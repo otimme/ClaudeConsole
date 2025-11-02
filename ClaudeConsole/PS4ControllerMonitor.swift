@@ -67,6 +67,11 @@ enum PS4Button: String, CaseIterable, Codable {
 class PS4ControllerMonitor: ObservableObject {
     private static let logger = Logger(subsystem: "com.app.ClaudeConsole", category: "PS4Controller")
 
+    // Configuration constants
+    private static let batteryCheckInterval: TimeInterval = 30.0  // seconds
+    private static let initialBatteryCheckDelay: TimeInterval = 2.0  // seconds
+    private static let triggerPressThreshold: Float = 0.5  // L2/R2 trigger threshold
+
     @Published var isConnected = false
     @Published var pressedButtons: Set<PS4Button> = []
     @Published var leftStickX: Float = 0
@@ -123,8 +128,7 @@ class PS4ControllerMonitor: ObservableObject {
             // Ensure connection happens on main thread
             DispatchQueue.main.async { [weak self] in
                 self?.connectToController()
-                // Force UI update by explicitly sending change notification
-                self?.objectWillChange.send()
+                // @Published properties will automatically trigger UI updates
             }
         }
     }
@@ -146,8 +150,7 @@ class PS4ControllerMonitor: ObservableObject {
             self.batteryMonitorTimer?.invalidate()
             self.batteryMonitorTimer = nil
 
-            // Force UI update by explicitly sending change notification
-            self.objectWillChange.send()
+            // @Published properties will automatically trigger UI updates
         }
     }
 
@@ -209,10 +212,7 @@ class PS4ControllerMonitor: ObservableObject {
             setupControllerCallbacks()
             startBatteryMonitoring()
 
-            // Force UI update after all properties are set
-            DispatchQueue.main.async { [weak self] in
-                self?.objectWillChange.send()
-            }
+            // @Published properties automatically trigger UI updates
         } else {
             print("PS4Controller: No compatible controller found")
         }
@@ -234,24 +234,14 @@ class PS4ControllerMonitor: ObservableObject {
         let level = battery.batteryLevel
         let state = battery.batteryState
 
-        // Special handling for PS4 controllers that report 0 battery with unknown state
-        if level == 0 && state == .unknown {
-            // Keep showing estimated battery for DualShock 4 controllers
-            if oldLevel == nil || oldLevel == 0 {
-                batteryLevel = 0.5  // Default to 50%
-                batteryState = .discharging
-                print("PS4Controller: DualShock 4 battery workaround applied (showing 50%)")
-            }
-            // Otherwise keep the previous estimated value
-        } else {
-            batteryLevel = level
-            batteryState = state
+        // Always show accurate battery data - never fabricate values
+        batteryLevel = level
+        batteryState = state
 
-            // Log if battery changed significantly
-            if oldLevel == nil || abs((oldLevel ?? 0) - level) > 0.05 {
-                print("PS4Controller: Battery update - Level: \(level) (\(Int(level * 100))%)")
-                print("PS4Controller: Battery state: \(batteryStateString(state))")
-            }
+        // Log if battery changed significantly
+        if oldLevel == nil || abs((oldLevel ?? 0) - level) > 0.05 {
+            os_log("PS4Controller: Battery update - Level: %{public}f (%d%%)", log: .default, type: .info, level, Int(level * 100))
+            os_log("PS4Controller: Battery state: %{public}@", log: .default, type: .info, batteryStateString(state))
         }
     }
 
@@ -278,10 +268,10 @@ class PS4ControllerMonitor: ObservableObject {
         }
 
         // Monitor battery changes with a timer
-        // Check every 30 seconds for battery updates
-        batteryMonitorTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                // Only log if battery level changes
+        // Ensure timer is scheduled on main RunLoop for thread safety
+        DispatchQueue.main.async { [weak self] in
+            self?.batteryMonitorTimer = Timer.scheduledTimer(withTimeInterval: Self.batteryCheckInterval, repeats: true) { [weak self] _ in
+                // Already on main queue since timer is on main RunLoop
                 self?.updateBatteryStatus()
             }
         }
@@ -339,7 +329,7 @@ class PS4ControllerMonitor: ObservableObject {
         gamepad.leftTrigger.valueChangedHandler = { [weak self] _, value, _ in
             DispatchQueue.main.async {
                 self?.l2Value = value
-                if value > 0.5 {
+                if value > Self.triggerPressThreshold {
                     self?.pressedButtons.insert(.l2)
                     self?.onButtonPressed?(.l2)
                 } else {
@@ -352,7 +342,7 @@ class PS4ControllerMonitor: ObservableObject {
         gamepad.rightTrigger.valueChangedHandler = { [weak self] _, value, _ in
             DispatchQueue.main.async {
                 self?.r2Value = value
-                if value > 0.5 {
+                if value > Self.triggerPressThreshold {
                     self?.pressedButtons.insert(.r2)
                     self?.onButtonPressed?(.r2)
                 } else {

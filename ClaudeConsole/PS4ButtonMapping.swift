@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import os.log
 
 // Represents a keyboard command (key + modifiers)
 struct KeyCommand: Codable, Equatable {
@@ -295,7 +296,10 @@ class PS4ButtonMapping: ObservableObject, Codable {
         }
     }
 
-    func saveMappings() {
+    @Published var lastSaveError: Error? = nil
+
+    @discardableResult
+    func saveMappings() -> Result<Void, Error> {
         do {
             // Save with version information
             let versionedData = PS4ButtonMappingData(
@@ -304,26 +308,25 @@ class PS4ButtonMapping: ObservableObject, Codable {
             )
             let encoded = try JSONEncoder().encode(versionedData)
             UserDefaults.standard.set(encoded, forKey: Self.mappingsKey)
+            lastSaveError = nil
+            return .success(())
         } catch {
-            print("ERROR: Failed to save PS4 controller mappings: \(error)")
-            // Consider posting a notification for UI to show error
-            NotificationCenter.default.post(
-                name: Notification.Name("PS4MappingSaveError"),
-                object: error
-            )
+            os_log("ERROR: Failed to save PS4 controller mappings: %{public}@", log: .default, type: .error, error.localizedDescription)
+            lastSaveError = error
+            return .failure(error)
         }
     }
 
     func resetToDefaults() {
-        objectWillChange.send()
+        // @Published property will automatically trigger objectWillChange
         mappings = Self.defaultMappings
-        saveMappings()
+        _ = saveMappings()
     }
 
     func setMapping(for button: PS4Button, action: ButtonAction) {
-        objectWillChange.send()
+        // @Published property will automatically trigger objectWillChange
         mappings[button] = action
-        saveMappings()
+        _ = saveMappings()
     }
 
     func getAction(for button: PS4Button) -> ButtonAction? {
