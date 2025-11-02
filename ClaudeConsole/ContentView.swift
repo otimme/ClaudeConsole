@@ -7,15 +7,47 @@
 
 import SwiftUI
 import SwiftTerm
+import GameController
 
 struct ContentView: View {
     @StateObject private var usageMonitor = UsageMonitor()
     @StateObject private var contextMonitor = ContextMonitor()
     @StateObject private var speechToText = SpeechToTextController()
+    @StateObject private var ps4Controller = PS4ControllerController()
     @State private var terminalController: LocalProcessTerminalView?
+    @State private var showPS4Controller = false
+    @State private var useCompactStatusBar = false
+    @AppStorage("showPS4StatusBar") private var showPS4StatusBar = true
 
     var body: some View {
         VStack(spacing: 0) {
+            // PS4 Controller status bar at the very top (only when connected)
+            if showPS4StatusBar && ps4Controller.monitor.isConnected {
+                Group {
+                    if useCompactStatusBar {
+                        PS4ControllerMiniBar(
+                            monitor: ps4Controller.monitor,
+                            mapping: ps4Controller.mapping
+                        )
+                    } else {
+                        PS4ControllerStatusBar(
+                            monitor: ps4Controller.monitor,
+                            mapping: ps4Controller.mapping
+                        )
+                    }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .contextMenu {
+                    Button(useCompactStatusBar ? "Show Full Status Bar" : "Show Compact Status Bar") {
+                        useCompactStatusBar.toggle()
+                    }
+                    Divider()
+                    Button("Hide PS4 Status Bar") {
+                        showPS4StatusBar = false
+                    }
+                }
+            }
+
             // Real usage stats from /usage command
             RealUsageStatsView(usageMonitor: usageMonitor)
                 .frame(height: 70)
@@ -23,10 +55,12 @@ struct ContentView: View {
 
             Divider()
 
-            // Terminal in the middle with speech-to-text overlay
-            ZStack(alignment: .top) {
-                TerminalView(terminalController: $terminalController)
-                    .frame(minWidth: 800, minHeight: 400)
+            // Main content area with terminal and optional PS4 controller panel
+            HStack(spacing: 0) {
+                // Terminal in the middle with speech-to-text overlay
+                ZStack(alignment: .top) {
+                    TerminalView(terminalController: $terminalController)
+                        .frame(minWidth: 600, minHeight: 400)
 
                 // Model download indicator (center)
                 if speechToText.speechRecognition.isDownloadingModel {
@@ -70,14 +104,167 @@ struct ContentView: View {
                 }
             }
 
+                // PS4 Controller panel (collapsible)
+                if showPS4Controller {
+                    Divider()
+
+                    PS4ControllerView(
+                        monitor: ps4Controller.monitor,
+                        mapping: ps4Controller.mapping
+                    )
+                    .frame(width: 400)
+                    .background(Color(NSColor.windowBackgroundColor))
+                }
+            }
+
             Divider()
 
-            // Context usage statistics
-            ContextStatsView(contextMonitor: contextMonitor)
-                .frame(height: 60)
-                .background(Color(NSColor.controlBackgroundColor))
+            // Context usage statistics with PS4 toggle button
+            HStack(spacing: 0) {
+                ContextStatsView(contextMonitor: contextMonitor)
+
+                Divider()
+                    .frame(height: 40)
+
+                // PS4 Controller toggle button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showPS4Controller.toggle()
+                    }
+                }) {
+                    VStack(spacing: 2) {
+                        Image(systemName: ps4Controller.monitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
+                            .font(.system(size: 22))
+                            .foregroundColor(ps4Controller.monitor.isConnected ? .green : .gray)
+                            .opacity(ps4Controller.monitor.isConnected ? 1.0 : 0.4)
+
+                        // Battery indicator - always show, but disabled when not connected
+                        PS4BatteryIndicator(
+                            level: ps4Controller.monitor.batteryLevel ?? 0,
+                            state: ps4Controller.monitor.batteryState,
+                            isConnected: ps4Controller.monitor.isConnected
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+                .frame(width: 60)
+                .animation(.easeInOut(duration: 0.3), value: ps4Controller.monitor.isConnected)
+                .help(batteryTooltip)
+                .onTapGesture(count: 2) {
+                    // Double-tap to force battery check (for debugging)
+                    print("ContentView: Manual battery check requested")
+                    if let level = ps4Controller.monitor.batteryLevel {
+                        print("ContentView: Current battery level: \(level) (\(Int(level * 100))%)")
+                        print("ContentView: Current battery state: \(ps4Controller.monitor.batteryState)")
+                    } else {
+                        print("ContentView: Battery level is nil")
+                    }
+                }
+                .contextMenu {
+                    Button("Toggle Controller Panel") {
+                        withAnimation {
+                            showPS4Controller.toggle()
+                        }
+                    }
+                    Divider()
+                    Toggle("Show Status Bar", isOn: $showPS4StatusBar)
+                    Toggle("Compact Mode", isOn: $useCompactStatusBar)
+                        .disabled(!showPS4StatusBar)
+                    Divider()
+                    Button("Check Battery Status") {
+                        ps4Controller.monitor.checkBatteryStatus()
+                    }
+                    .disabled(!ps4Controller.monitor.isConnected)
+                }
+            }
+            .frame(height: 60)
+            .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(minWidth: 800, minHeight: 600)
+        .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
+    }
+
+    var batteryTooltip: String {
+        if ps4Controller.monitor.isConnected {
+            if let level = ps4Controller.monitor.batteryLevel {
+                let percentage = Int(level * 100)
+                let stateText = ps4Controller.monitor.batteryState == .charging ? " (Charging)" :
+                               ps4Controller.monitor.batteryState == .full ? " (Full)" : ""
+
+                // Check if this is an estimated value (DualShock 4 workaround)
+                if level == 0.5 && ps4Controller.monitor.batteryState == .discharging {
+                    return "PS4 Controller Connected - Battery: ~\(percentage)%\(stateText) (Estimated)"
+                }
+
+                return "PS4 Controller Connected - Battery: \(percentage)%\(stateText)"
+            }
+            return "PS4 Controller Connected"
+        }
+        return "No PS4 Controller - Press to view panel"
+    }
+}
+
+// Battery indicator view for PS4 controller
+struct PS4BatteryIndicator: View {
+    let level: Float
+    let state: GCDeviceBattery.State
+    let isConnected: Bool
+
+    var body: some View {
+        HStack(spacing: 1) {
+            // Battery body
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 1)
+                    .stroke(batteryColor.opacity(0.5), lineWidth: 1)
+                    .frame(width: 22, height: 8)
+
+                // Battery fill (show when connected and has level OR is full)
+                if isConnected && (level > 0 || state == .full) {
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(batteryColor)
+                        // If full but level is 0, show as full
+                        .frame(width: max(2, 20 * CGFloat(state == .full && level == 0 ? 1.0 : level)), height: 6)
+                        .padding(.horizontal, 1)
+                }
+            }
+
+            // Battery tip
+            RoundedRectangle(cornerRadius: 0.5)
+                .fill(batteryColor.opacity(0.5))
+                .frame(width: 2, height: 4)
+
+            // Charging indicator
+            if isConnected && state == .charging {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 6))
+                    .foregroundColor(.yellow)
+                    .offset(x: -1)
+            }
+        }
+        .frame(width: 30, height: 8)
+        .opacity(isConnected ? 1.0 : 0.4)
+    }
+
+    var batteryColor: SwiftUI.Color {
+        if !isConnected {
+            return .gray
+        }
+        if state == .charging {
+            return .yellow
+        }
+        // Show blue/cyan for estimated battery (DualShock 4 workaround)
+        if level == 0.5 && state == .discharging {
+            return .cyan
+        }
+        if level > 0.5 {
+            return .green
+        } else if level > 0.2 {
+            return .orange
+        } else if level > 0 {
+            return .red
+        } else {
+            // If level is exactly 0 but connected, assume unknown/estimated
+            return .gray
+        }
     }
 }
 

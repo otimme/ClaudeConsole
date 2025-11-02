@@ -110,6 +110,48 @@ Free space: 131k
 
 See `SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 
+## PS4 Controller Support
+
+**DualShock 4 Integration**: Full PlayStation 4 controller support with customizable button-to-key mappings and visual feedback.
+
+**Components:**
+- `PS4ControllerMonitor`: Monitors controller connection and input using GameController framework
+- `PS4ButtonMapping`: Persistent storage for button-to-key/key-combination mappings
+- `PS4ControllerController`: Orchestrates controller input and terminal integration
+- `PS4ControllerView`: Visual representation of controller with real-time button state
+- `PS4ControllerStatusBar`: Top status bar showing all button mappings at a glance
+- `PS4ConfigurationView`: Settings panel for customizing button mappings
+
+**Features:**
+- **Complete Button Support**: All DualShock 4 buttons including face buttons (✕○□△), shoulders (L1/R1/L2/R2), D-pad, analog sticks (L3/R3), and center buttons (Options/Share/Touchpad)
+- **Visual Feedback**: Buttons light up with colored indicators when pressed, both in the controller panel and status bar
+- **Customizable Mappings**: Each button can be mapped to any key or key combination with modifiers (⌃⌥⇧⌘)
+- **Preset Configurations**: Built-in presets for Vim mode, Navigation mode, Terminal mode, or Custom
+- **Status Bar**: Two display modes - Full (shows all buttons) or Compact (shows only pressed buttons)
+- **Battery Monitoring**: Real-time battery level display with charging indicator
+- **Connection Notifications**: System notifications on controller connect/disconnect
+
+**Flow:**
+1. Controller connects via Bluetooth or USB → `PS4ControllerMonitor` detects via GameController framework
+2. User presses button → Monitor captures input and looks up mapping in `PS4ButtonMapping`
+3. Mapped KeyCommand is converted to terminal data and sent via `terminalController.send()`
+4. Visual feedback shown in both status bar and optional controller panel
+
+**Implementation Details:**
+- Uses Apple's GameController framework for native controller support
+- Mappings stored in UserDefaults with Codable models
+- Deferred initialization to prevent crashes: `DispatchQueue.main.async { self?.setupControllerCallbacks() }`
+- Safe battery access with weak self capture to avoid crashes during connection
+- OptionSet for modifier keys using `.contains()` method for proper bit checking
+- Explicit `SwiftUI.Color` to avoid conflicts with SwiftTerm's Color type
+
+**Default Mappings:**
+- Cross (✕) → Enter, Circle (○) → Escape, Square (□) → Space, Triangle (△) → Tab
+- D-Pad → Arrow keys, L1/R1 → Page Up/Down, L2/R2 → Home/End
+- Options → Ctrl+C, Share → Ctrl+Z, L3/R3 → Ctrl+A/E
+
+See `PS4_CONTROLLER_GUIDE.md` for detailed setup and usage instructions.
+
 ## Key Implementation Notes
 
 - `UsageMonitor` runs on background queue to avoid UI thread blocking during initialization
