@@ -151,11 +151,14 @@ class PS4ControllerController: ObservableObject {
 
         // Transition to recording state
         pushToTalkState = .recording(button: button, startedAt: Date())
-        appCommandExecutor.execute(.triggerSpeechToText)
+
+        // FIX: Call startRecordingViaController() directly instead of going through toggle
+        // This eliminates the double DispatchQueue.main.async chain that was causing race conditions
+        speech.startRecordingViaController()
 
         // FIX: Async verification that recording actually started
-        // If recording fails to start (mic permissions, etc.), we reset state to prevent inconsistency
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+        // Increased delay to 300ms to account for async dispatch chain
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self = self else { return }
 
             // If still in recording state but not actually recording, reset
@@ -178,7 +181,12 @@ class PS4ControllerController: ObservableObject {
 
         // Transition to transcribing state
         pushToTalkState = .transcribing
-        appCommandExecutor.execute(.stopSpeechToText)
+
+        // FIX: Call stopRecordingViaController() directly instead of going through executor
+        // This ensures we stop recording immediately without extra indirection
+        if let speech = appCommandExecutor.speechController {
+            speech.stopRecordingViaController()
+        }
 
         // FIX: Safety timeout fallback (30 seconds)
         // If transcription hangs or fails, automatically reset to idle state
@@ -212,7 +220,9 @@ class PS4ControllerController: ObservableObject {
         // - State inconsistency
         if case .recording = pushToTalkState {
             os_log("Controller disconnected during push-to-talk - stopping recording", log: .default, type: .info)
-            appCommandExecutor.execute(.stopSpeechToText)
+            if let speech = appCommandExecutor.speechController {
+                speech.stopRecordingViaController()
+            }
         }
         pushToTalkState = .idle
     }
@@ -586,7 +596,9 @@ class PS4ControllerController: ObservableObject {
         // Critical for battery life and privacy
         if case .recording = pushToTalkState {
             os_log("Controller deallocating during push-to-talk - stopping recording", log: .default, type: .info)
-            appCommandExecutor.execute(.stopSpeechToText)
+            if let speech = appCommandExecutor.speechController {
+                speech.stopRecordingViaController()
+            }
         }
 
         // FIX: Clear callbacks to break reference cycles
