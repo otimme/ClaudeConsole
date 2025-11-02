@@ -118,6 +118,7 @@ struct ButtonListView: View {
                                     selectedButton = button
                                 }
                             )
+                            .id("\(button.rawValue)-\(mapping.getAction(for: button)?.displayString ?? "none")")
                         }
                     }
                 }

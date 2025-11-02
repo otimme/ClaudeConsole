@@ -315,11 +315,13 @@ class PS4ButtonMapping: ObservableObject, Codable {
     }
 
     func resetToDefaults() {
+        objectWillChange.send()
         mappings = Self.defaultMappings
         saveMappings()
     }
 
     func setMapping(for button: PS4Button, action: ButtonAction) {
+        objectWillChange.send()
         mappings[button] = action
         saveMappings()
     }
