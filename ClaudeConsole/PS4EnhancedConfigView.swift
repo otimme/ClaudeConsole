@@ -204,6 +204,8 @@ struct ActionEditorView: View {
     @State private var selectedAppCommand: AppCommand = .showUsage
     @State private var shellCommand = ""
     @State private var isLoadingFromButton = false
+    @State private var savedAction: ButtonAction?
+    @State private var showSaveSuccess = false
 
     enum ActionType: String, CaseIterable {
         case keyCommand = "Key Press"
@@ -258,6 +260,7 @@ struct ActionEditorView: View {
                     // Only reset if user manually changed the type (not loading from button)
                     if !isLoadingFromButton {
                         resetToDefaults(for: newType)
+                        showSaveSuccess = false
                     }
                 }
             }
@@ -270,18 +273,23 @@ struct ActionEditorView: View {
                 switch selectedActionType {
                 case .keyCommand:
                     KeyCommandEditor(command: $keyCommand)
+                    .onChange(of: keyCommand) { _ in showSaveSuccess = false }
 
                 case .textMacro:
                     TextMacroEditor(
                         text: $textMacro,
                         autoEnter: $autoEnter
                     )
+                    .onChange(of: textMacro) { _ in showSaveSuccess = false }
+                    .onChange(of: autoEnter) { _ in showSaveSuccess = false }
 
                 case .applicationCommand:
                     AppCommandEditor(command: $selectedAppCommand)
+                    .onChange(of: selectedAppCommand) { _ in showSaveSuccess = false }
 
                 case .shellCommand:
                     ShellCommandEditor(command: $shellCommand)
+                    .onChange(of: shellCommand) { _ in showSaveSuccess = false }
                 }
             }
             .padding(.horizontal)
@@ -295,20 +303,31 @@ struct ActionEditorView: View {
 
             // Save button
             HStack {
+                // Success indicator
+                if showSaveSuccess {
+                    Label("Saved", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                        .transition(.opacity)
+                }
+
                 Spacer()
 
                 Button("Cancel") {
                     loadCurrentSettings()
                 }
                 .buttonStyle(.accessoryBar)
+                .disabled(!hasChanges)
 
-                Button("Save") {
+                Button(showSaveSuccess ? "Saved" : "Save") {
                     saveAction()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!isValidAction)
+                .disabled(!canSave)
+                .foregroundColor(showSaveSuccess ? .green : nil)
             }
             .padding()
+            .animation(.easeInOut(duration: 0.3), value: showSaveSuccess)
         }
         .onAppear {
             loadCurrentSettings()
@@ -344,15 +363,37 @@ struct ActionEditorView: View {
         }
     }
 
+    private var hasChanges: Bool {
+        // Check if the current preview action differs from the saved action
+        let currentPreview = previewAction
+
+        // If we have a saved action, compare it
+        if let saved = savedAction {
+            return saved != currentPreview
+        }
+
+        // If no saved action exists, check if we have valid content to save
+        return isValidAction
+    }
+
+    private var canSave: Bool {
+        return isValidAction && hasChanges && !showSaveSuccess
+    }
+
     private func loadCurrentSettings() {
         // Set flag to prevent onChange from resetting fields
         isLoadingFromButton = true
         defer { isLoadingFromButton = false }
 
+        // Save the current action for comparison
+        savedAction = currentAction
+        showSaveSuccess = false
+
         guard let action = currentAction else {
             // No current action, reset to defaults for key command
             selectedActionType = .keyCommand
             resetToDefaults(for: .keyCommand)
+            savedAction = nil
             return
         }
 
@@ -398,6 +439,13 @@ struct ActionEditorView: View {
     private func saveAction() {
         let action = previewAction
         mapping.setMapping(for: button, action: action)
+        savedAction = action
+        showSaveSuccess = true
+
+        // Hide success indicator after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            showSaveSuccess = false
+        }
     }
 }
 
