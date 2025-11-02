@@ -52,8 +52,10 @@ class SpeechToTextController: ObservableObject {
             self?.stopRecordingAndTranscribe()
         }
 
-        // Observe recording state
-        keyboardMonitor.$isRecording
+        // CRITICAL FIX: Observe recording state from BOTH keyboard AND audio recorder
+        // Previously only keyboard was observed, causing push-to-talk to fail verification
+        // Now we sync from audioRecorder which is the actual source of truth
+        audioRecorder.$isRecording
             .receive(on: DispatchQueue.main)
             .sink { [weak self] recording in
                 self?.isRecording = recording

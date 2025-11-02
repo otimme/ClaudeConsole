@@ -24,6 +24,7 @@ class AppCommandExecutor: ObservableObject {
     weak var speechController: SpeechToTextController?
     weak var ps4Controller: PS4ControllerController?
     weak var terminalController: LocalProcessTerminalView?  // NEW: Direct terminal access
+    weak var contextMonitor: ContextMonitor?  // NEW: For context stats refresh
 
     // Published state for UI bindings
     @Published var showPS4Panel: Bool = false
@@ -169,16 +170,15 @@ class AppCommandExecutor: ObservableObject {
     }
 
     private func showContext() {
-        guard let terminal = terminalController else {
-            os_log("Terminal controller not available for context command", log: .default, type: .error)
+        // FIX: Call contextMonitor.requestContextUpdate() to update UI stats display
+        // This triggers the same functionality as the refresh button in ContextStatsView
+        guard let context = contextMonitor else {
+            os_log("ContextMonitor not available for context command", log: .default, type: .error)
             return
         }
 
-        // Send /context command to terminal as text macro with Enter
-        var data = "/context".data(using: .utf8) ?? Data()
-        data.append(Data([0x0D])) // Carriage return
-        terminal.send(data: ArraySlice(data))
-        os_log("Show context command sent", log: .default, type: .info)
+        context.requestContextUpdate()
+        os_log("Context stats update requested", log: .default, type: .info)
     }
 
     private func refreshStats() {

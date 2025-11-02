@@ -213,6 +213,7 @@ struct ContentView: View {
             ps4Controller.appCommandExecutor.speechController = speechToText
             ps4Controller.appCommandExecutor.ps4Controller = ps4Controller
             ps4Controller.appCommandExecutor.terminalController = terminalController
+            ps4Controller.appCommandExecutor.contextMonitor = contextMonitor
 
             // Sync UI state with AppCommandExecutor
             ps4Controller.appCommandExecutor.showPS4Panel = showPS4Controller
@@ -235,6 +236,11 @@ struct ContentView: View {
                     showPS4StatusBar = newValue
                 }
                 .store(in: &subscriptionManager.cancellables)
+        }
+        .onChange(of: terminalController) { _, newController in
+            // FIX: Update AppCommandExecutor's terminal controller when it becomes available
+            // Terminal controller is set asynchronously after view initialization via binding
+            ps4Controller.appCommandExecutor.terminalController = newController
         }
     }
 
