@@ -202,6 +202,7 @@ struct ActionEditorView: View {
     @State private var autoEnter = true
     @State private var selectedAppCommand: AppCommand = .showUsage
     @State private var shellCommand = ""
+    @State private var isLoadingFromButton = false
 
     enum ActionType: String, CaseIterable {
         case keyCommand = "Key Press"
@@ -253,20 +254,8 @@ struct ActionEditorView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .onChange(of: selectedActionType) { newType in
-                    // Only load current settings if the saved action matches the selected type
-                    if let action = currentAction {
-                        switch (action, newType) {
-                        case (.keyCommand, .keyCommand),
-                             (.textMacro, .textMacro),
-                             (.applicationCommand, .applicationCommand),
-                             (.shellCommand, .shellCommand):
-                            loadCurrentSettings()
-                        default:
-                            // Reset to defaults when switching to a different type
-                            resetToDefaults(for: newType)
-                        }
-                    } else {
-                        // No saved action, use defaults
+                    // Only reset if user manually changed the type (not loading from button)
+                    if !isLoadingFromButton {
                         resetToDefaults(for: newType)
                     }
                 }
@@ -323,6 +312,9 @@ struct ActionEditorView: View {
         .onAppear {
             loadCurrentSettings()
         }
+        .onChange(of: button) { _ in
+            loadCurrentSettings()
+        }
     }
 
     private var previewAction: ButtonAction {
@@ -352,9 +344,14 @@ struct ActionEditorView: View {
     }
 
     private func loadCurrentSettings() {
+        // Set flag to prevent onChange from resetting fields
+        isLoadingFromButton = true
+        defer { isLoadingFromButton = false }
+
         guard let action = currentAction else {
-            // No current action, reset to defaults for the selected type
-            resetToDefaults(for: selectedActionType)
+            // No current action, reset to defaults for key command
+            selectedActionType = .keyCommand
+            resetToDefaults(for: .keyCommand)
             return
         }
 
@@ -377,7 +374,9 @@ struct ActionEditorView: View {
             shellCommand = cmd
 
         default:
-            break // Handle sequence and system commands later
+            // Default to key command for unsupported types
+            selectedActionType = .keyCommand
+            resetToDefaults(for: .keyCommand)
         }
     }
 
