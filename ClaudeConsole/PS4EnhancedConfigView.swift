@@ -228,8 +228,8 @@ struct ActionEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Header
+        VStack(alignment: .leading, spacing: 0) {
+            // Header (fixed)
             HStack {
                 ButtonIcon(button: button)
                     .frame(width: 30)
@@ -243,7 +243,7 @@ struct ActionEditorView: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
 
-            // Action type selector
+            // Action type selector (fixed)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Action Type")
                     .font(.headline)
@@ -264,44 +264,49 @@ struct ActionEditorView: View {
                     }
                 }
             }
-            .padding(.horizontal)
+            .padding()
 
             Divider()
 
-            // Action-specific editor
-            Group {
-                switch selectedActionType {
-                case .keyCommand:
-                    KeyCommandEditor(command: $keyCommand)
-                    .onChange(of: keyCommand) { _ in showSaveSuccess = false }
+            // Scrollable content area
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Action-specific editor
+                    Group {
+                        switch selectedActionType {
+                        case .keyCommand:
+                            KeyCommandEditor(command: $keyCommand)
+                            .onChange(of: keyCommand) { _ in showSaveSuccess = false }
 
-                case .textMacro:
-                    TextMacroEditor(
-                        text: $textMacro,
-                        autoEnter: $autoEnter
-                    )
-                    .onChange(of: textMacro) { _ in showSaveSuccess = false }
-                    .onChange(of: autoEnter) { _ in showSaveSuccess = false }
+                        case .textMacro:
+                            TextMacroEditor(
+                                text: $textMacro,
+                                autoEnter: $autoEnter
+                            )
+                            .onChange(of: textMacro) { _ in showSaveSuccess = false }
+                            .onChange(of: autoEnter) { _ in showSaveSuccess = false }
 
-                case .applicationCommand:
-                    AppCommandEditor(command: $selectedAppCommand)
-                    .onChange(of: selectedAppCommand) { _ in showSaveSuccess = false }
+                        case .applicationCommand:
+                            AppCommandEditor(command: $selectedAppCommand)
+                            .onChange(of: selectedAppCommand) { _ in showSaveSuccess = false }
 
-                case .shellCommand:
-                    ShellCommandEditor(command: $shellCommand)
-                    .onChange(of: shellCommand) { _ in showSaveSuccess = false }
+                        case .shellCommand:
+                            ShellCommandEditor(command: $shellCommand)
+                            .onChange(of: shellCommand) { _ in showSaveSuccess = false }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top)
                 }
             }
-            .padding(.horizontal)
+            .frame(maxHeight: .infinity)
 
-            Spacer()
-
-            // Preview
+            // Preview (fixed)
             ActionPreview(action: previewAction)
                 .padding()
                 .background(Color(NSColor.controlBackgroundColor))
 
-            // Save button
+            // Save button (fixed)
             HStack {
                 // Success indicator
                 if showSaveSuccess {
