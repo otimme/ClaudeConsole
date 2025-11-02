@@ -1,5 +1,6 @@
 # PS4 Controller Enhancement Plan
 *Living Document - Last Updated: 2025-11-02*
+*Phase 4 Completed: 2025-11-02*
 
 ## Project Overview
 
@@ -201,42 +202,72 @@ class AppCommandExecutor {
 - Toggle: Press → start recording → press again → stop
 - Hybrid: Short press = single command, long hold = continuous
 
-### Phase 4: Enhanced Configuration UI ⬜ (4-5 hours)
+### Phase 4: Enhanced Configuration UI ✅ (Completed - 4 hours)
 
 **Tasks:**
-- [ ] Add action type selector (segmented control)
-- [ ] Create `ButtonActionEditor` view
-- [ ] Implement conditional UI based on action type:
-  - [ ] Key capture field for KeyCommand
-  - [ ] Text input with preview for TextMacro
-  - [ ] Dropdown selector for AppCommand
-  - [ ] List builder for Sequence
-- [ ] Add validation for each action type
-- [ ] Create action preview component
-- [ ] Implement import/export configuration
-- [ ] Add preset manager UI
-- [ ] Create action testing mode
-- [ ] Add help tooltips for each action type
+- [x] Add action type selector (segmented control)
+- [x] Create `ButtonActionEditor` view (as `ActionEditorView`)
+- [x] Implement conditional UI based on action type:
+  - [x] Key capture field for KeyCommand
+  - [x] Text input with preview for TextMacro
+  - [x] Dropdown selector for AppCommand
+  - [x] Shell command editor for ShellCommand
+- [x] Add validation for each action type
+- [x] Create action preview component
+- [x] Add preset manager UI (MacroPresetPicker, PresetLibraryView)
+- [x] Implement change tracking for save button
+- [x] Add ScrollView for overflow content
+- [ ] Implement import/export configuration (deferred)
+- [ ] Create action testing mode (deferred)
+- [ ] Add help tooltips for each action type (deferred)
 
-**UI Components:**
-```swift
-struct ButtonActionEditor: View {
-    @Binding var action: ButtonAction
+**Implementation Notes:**
+- Created comprehensive `PS4EnhancedConfigView` with modern UI
+- Implemented specialized editors for each action type:
+  - `KeyCommandEditor` with key capture functionality
+  - `TextMacroEditor` with character count and preset browser
+  - `AppCommandEditor` with radio button picker
+  - `ShellCommandEditor` with text field
+- Built preset library system with categories and search
+- Added visual action preview with color-coded type badges
+- Implemented smart save button with change tracking and success feedback
+- Fixed critical button selection bug where clicking buttons loaded wrong data
 
-    var body: some View {
-        switch action {
-        case .keyCommand:
-            KeyCaptureField(...)
-        case .textMacro:
-            TextMacroEditor(...)
-        case .applicationCommand:
-            AppCommandPicker(...)
-        case .sequence:
-            SequenceBuilder(...)
-        }
-    }
-}
-```
+**Key Bugs Fixed:**
+1. **Button selection bug**: When clicking buttons in the list, the wrong action would load
+   - Root cause: `onChange(of: button)` was reading stale `button` property
+   - Fix: Changed `loadCurrentSettings()` to accept parameter `loadCurrentSettings(for: targetButton)`
+2. **Action type not switching**: Clicking buttons didn't switch to correct tab (Key/Text/App/Shell)
+   - Fix: Implemented `loadedActionType` tracking to prevent unwanted resets
+   - Load data BEFORE changing `selectedActionType` to ensure proper state updates
+3. **Preview labels not updating**: Button preview labels weren't refreshing after save
+   - Fix: Added `objectWillChange.send()` and unique `.id()` modifiers
+4. **Save button always enabled**: Button didn't reflect save state properly
+   - Fix: Implemented `hasChanges` computed property and success indicator
+
+**UI Components Created:**
+- `PS4EnhancedConfigView` - Main container
+- `ButtonListView` - Left panel with button selection
+- `ButtonRow` - Individual button rows with preview labels
+- `ActionEditorView` - Right panel with action editing
+- `KeyCommandEditor`, `TextMacroEditor`, `AppCommandEditor`, `ShellCommandEditor` - Specialized editors
+- `ActionPreview` - Visual preview of current action
+- `MacroPresetPicker` - Preset browser with search and categories
+- `PresetLibraryView` - Full preset set manager
+
+**Key Files Modified:**
+- `PS4EnhancedConfigView.swift` - Complete rewrite with all UI components
+- `PS4ControllerView.swift` - Updated to use PS4EnhancedConfigView
+- `ContentView.swift` - Updated PS4ControllerView initialization
+- `PS4ButtonMapping.swift` - Added objectWillChange notifications
+
+**Testing Completed:**
+- ✅ All action types load correctly when clicking buttons
+- ✅ Save button change tracking works properly
+- ✅ Preview labels update after saving
+- ✅ ScrollView handles content overflow
+- ✅ Preset library functional with search and categories
+- ✅ Button selection bug fixed (loads correct data)
 
 ### Phase 5: Button Combinations ⬜ (2-3 hours)
 
@@ -352,7 +383,12 @@ struct ControllerProfile {
 
 | Issue | Solution | Status |
 |-------|----------|--------|
-| TBD | TBD | TBD |
+| Button selection loads wrong action data | Changed `loadCurrentSettings()` to accept button parameter to use fresh value from `onChange` | ✅ Fixed |
+| Action type tab doesn't switch when clicking buttons | Implemented `loadedActionType` tracking to distinguish programmatic vs manual tab changes | ✅ Fixed |
+| Preview labels don't update after saving | Added `objectWillChange.send()` and unique `.id()` modifiers based on action content | ✅ Fixed |
+| Save button always enabled | Implemented `hasChanges` computed property comparing current state with `savedAction` | ✅ Fixed |
+| App Command UI overflows window | Wrapped content in ScrollView with fixed header/footer | ✅ Fixed |
+| onChange handler resets fields during load | Load field data BEFORE changing `selectedActionType`, use `loadedActionType` to skip reset | ✅ Fixed |
 
 ## Future Development
 

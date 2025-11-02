@@ -203,9 +203,9 @@ struct ActionEditorView: View {
     @State private var autoEnter = true
     @State private var selectedAppCommand: AppCommand = .showUsage
     @State private var shellCommand = ""
-    @State private var isLoadingFromButton = false
     @State private var savedAction: ButtonAction?
     @State private var showSaveSuccess = false
+    @State private var loadedActionType: ActionType?  // Track what we loaded to prevent unwanted resets
 
     enum ActionType: String, CaseIterable {
         case keyCommand = "Key Press"
@@ -257,10 +257,12 @@ struct ActionEditorView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .onChange(of: selectedActionType) { newType in
-                    // Only reset if user manually changed the type (not loading from button)
-                    if !isLoadingFromButton {
+                    // Only reset if user manually changed the type
+                    // Don't reset if we just loaded this type from the button's current action
+                    if loadedActionType != newType {
                         resetToDefaults(for: newType)
                         showSaveSuccess = false
+                        loadedActionType = nil  // Clear after manual change
                     }
                 }
             }
@@ -320,7 +322,7 @@ struct ActionEditorView: View {
                 Spacer()
 
                 Button("Cancel") {
-                    loadCurrentSettings()
+                    loadCurrentSettings(for: button)
                 }
                 .buttonStyle(.accessoryBar)
                 .disabled(!hasChanges)
@@ -336,10 +338,10 @@ struct ActionEditorView: View {
             .animation(.easeInOut(duration: 0.3), value: showSaveSuccess)
         }
         .onAppear {
-            loadCurrentSettings()
+            loadCurrentSettings(for: button)
         }
-        .onChange(of: button) { _ in
-            loadCurrentSettings()
+        .onChange(of: button) { newButton in
+            loadCurrentSettings(for: newButton)
         }
     }
 
@@ -386,43 +388,51 @@ struct ActionEditorView: View {
         return isValidAction && hasChanges && !showSaveSuccess
     }
 
-    private func loadCurrentSettings() {
-        // Set flag to prevent onChange from resetting fields
-        isLoadingFromButton = true
-        defer { isLoadingFromButton = false }
+    private func loadCurrentSettings(for targetButton: PS4Button) {
+        // Clear the loaded action type to ensure fresh load
+        loadedActionType = nil
 
         // Save the current action for comparison
-        savedAction = currentAction
+        let action = mapping.getAction(for: targetButton)
+        savedAction = action
         showSaveSuccess = false
 
-        guard let action = currentAction else {
+        guard let action = action else {
             // No current action, reset to defaults for key command
+            loadedActionType = .keyCommand
             selectedActionType = .keyCommand
             resetToDefaults(for: .keyCommand)
             savedAction = nil
             return
         }
 
+        // Set loadedActionType BEFORE changing selectedActionType
+        // This prevents the onChange handler from resetting fields
         switch action {
         case .keyCommand(let cmd):
-            selectedActionType = .keyCommand
+            loadedActionType = .keyCommand
             keyCommand = cmd
+            selectedActionType = .keyCommand
 
         case .textMacro(let text, let enter):
-            selectedActionType = .textMacro
+            loadedActionType = .textMacro
             textMacro = text
             autoEnter = enter
+            selectedActionType = .textMacro
 
         case .applicationCommand(let cmd):
-            selectedActionType = .applicationCommand
+            loadedActionType = .applicationCommand
             selectedAppCommand = cmd
+            selectedActionType = .applicationCommand
 
         case .shellCommand(let cmd):
-            selectedActionType = .shellCommand
+            loadedActionType = .shellCommand
             shellCommand = cmd
+            selectedActionType = .shellCommand
 
         default:
             // Default to key command for unsupported types
+            loadedActionType = .keyCommand
             selectedActionType = .keyCommand
             resetToDefaults(for: .keyCommand)
         }

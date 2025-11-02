@@ -14,7 +14,9 @@
       "Bash(git merge:*)",
       "Bash(git push)",
       "Bash(swift test_migration.swift:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(sips:*)",
+      "Bash(iconutil:*)"
     ],
     "deny": [],
     "ask": []
