@@ -66,11 +66,9 @@ class RadialMenuController: ObservableObject {
         guard !isVisible else { return }  // Don't open second menu
         guard !isExecuting else { return }  // Prevent during execution
 
-        // Start hold timer
+        // Open menu immediately
         let menuType: MenuType = button == .l1 ? .l1 : .r1
-        holdTimers[button] = Timer.scheduledTimer(withTimeInterval: holdDelay, repeats: false) { [weak self] _ in
-            self?.openMenu(type: menuType)
-        }
+        openMenu(type: menuType)
     }
 
     /// Call when a button is released (L1 or R1)

@@ -60,6 +60,14 @@ class PS4ControllerController: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        // Forward radialMenuController's objectWillChange
+        radialMenuController.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         // Listen for terminal controller availability
         terminalControllerObserver = NotificationCenter.default.addObserver(
             forName: .terminalControllerAvailable,

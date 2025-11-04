@@ -71,8 +71,9 @@ struct RadialMenuView: View {
                     }
 
                     // Analog stick position indicator (optional, helpful for learning)
-                    AnalogStickIndicator(position: controller.stickPosition)
-                        .offset(y: menuRadius + 40)
+                    // Commented out for production - uncomment for debugging joystick input
+                    // AnalogStickIndicator(position: controller.stickPosition)
+                    //     .offset(y: menuRadius + 40)
                 }
                 .transition(.scale.combined(with: .opacity))
             }
