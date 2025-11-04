@@ -120,6 +120,12 @@ struct ContentView: View {
                         }
                     }
                 }
+
+                // Radial menu overlay (full screen)
+                if ps4Controller.radialMenuController.isVisible {
+                    RadialMenuView(controller: ps4Controller.radialMenuController)
+                        .zIndex(50) // Below error banner, above terminal
+                }
             }
 
                 // PS4 Controller panel (collapsible)

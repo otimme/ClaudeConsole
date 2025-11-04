@@ -20,6 +20,7 @@ class PS4ControllerController: ObservableObject {
     let monitor = PS4ControllerMonitor()
     let mapping = PS4ButtonMapping()
     let appCommandExecutor = AppCommandExecutor()
+    let radialMenuController = RadialMenuController()
 
     @Published var isEnabled = true
     @Published var showVisualizer = true
@@ -86,6 +87,30 @@ class PS4ControllerController: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Listen for radial menu action selections
+        NotificationCenter.default.addObserver(
+            forName: .radialMenuActionSelected,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self else { return }
+            if let action = notification.userInfo?["action"] as? ButtonAction {
+                self.executeButtonAction(action)
+            }
+        }
+
+        // Monitor analog stick input for radial menu
+        monitor.$rightStickX
+            .combineLatest(monitor.$rightStickY)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] x, y in
+                guard let self = self else { return }
+                if self.radialMenuController.isVisible {
+                    self.radialMenuController.handleAnalogStickInput(x: x, y: y)
+                }
+            }
+            .store(in: &cancellables)
+
         // Defer setting up callbacks to avoid initialization issues
         DispatchQueue.main.async { [weak self] in
             self?.setupControllerCallbacks()
@@ -97,13 +122,29 @@ class PS4ControllerController: ObservableObject {
         monitor.onButtonPressed = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
 
+            // Block normal button actions if radial menu is visible
+            guard !self.radialMenuController.isVisible else {
+                // Only allow Circle to cancel menu
+                if button == .circle {
+                    self.radialMenuController.cancelMenu()
+                }
+                return
+            }
+
+            // Check for L1/R1 hold for radial menu
+            if button == .l1 || button == .r1 {
+                self.radialMenuController.handleButtonPress(button)
+                // Still execute normal action if configured, but only after hold delay
+                // The radial menu controller will prevent this if menu opens
+            }
+
             // Get the mapped action for this button
             if let action = self.mapping.getAction(for: button) {
                 // Check if this is a push-to-talk action
                 if case .applicationCommand(.pushToTalkSpeech) = action {
                     self.handlePushToTalkPress(button: button)
-                } else {
-                    // Execute action normally
+                } else if button != .l1 && button != .r1 {
+                    // Execute action normally (but not for L1/R1, they're handled by radial menu)
                     self.executeButtonAction(action)
                 }
 
@@ -115,6 +156,11 @@ class PS4ControllerController: ObservableObject {
         // Handle button releases
         monitor.onButtonReleased = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
+
+            // Handle radial menu release for L1/R1
+            if button == .l1 || button == .r1 {
+                self.radialMenuController.handleButtonRelease(button)
+            }
 
             // Check if this is a push-to-talk button being released
             self.handlePushToTalkRelease(button: button)
