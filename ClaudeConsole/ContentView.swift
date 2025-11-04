@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftTerm
 import GameController
+import Combine
 
 struct ContentView: View {
     @StateObject private var usageMonitor = UsageMonitor()
@@ -18,6 +19,23 @@ struct ContentView: View {
     @State private var showPS4Controller = false
     @State private var useCompactStatusBar = false
     @AppStorage("showPS4StatusBar") private var showPS4StatusBar = true
+
+    // CRITICAL FIX: Thread-safe subscription management
+    // Using @State with Set<AnyCancellable> directly causes race conditions and crashes
+    // because @State is not thread-safe for reference types.
+    // This helper class wraps the cancellables in a reference type that @State can safely hold.
+    private class SubscriptionManager {
+        var cancellables = Set<AnyCancellable>()
+    }
+    @State private var subscriptionManager = SubscriptionManager()
+
+    init() {
+        // Wire up dependencies after initialization
+        _usageMonitor = StateObject(wrappedValue: UsageMonitor())
+        _contextMonitor = StateObject(wrappedValue: ContextMonitor())
+        _speechToText = StateObject(wrappedValue: SpeechToTextController())
+        _ps4Controller = StateObject(wrappedValue: PS4ControllerController())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -183,6 +201,47 @@ struct ContentView: View {
             .background(Color(NSColor.controlBackgroundColor))
         }
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
+        .onAppear {
+            // CRITICAL FIX: Prevent duplicate subscriptions on multiple onAppear calls
+            // onAppear can fire multiple times (view recreation, navigation), so we guard
+            // against creating duplicate Combine subscriptions which cause memory leaks.
+            guard subscriptionManager.cancellables.isEmpty else { return }
+
+            // FIX: Wire up AppCommandExecutor dependencies for direct access
+            // This replaces the previous NotificationCenter-based approach with direct references,
+            // making the code more testable and eliminating hidden coupling.
+            ps4Controller.appCommandExecutor.speechController = speechToText
+            ps4Controller.appCommandExecutor.ps4Controller = ps4Controller
+            ps4Controller.appCommandExecutor.terminalController = terminalController
+            ps4Controller.appCommandExecutor.contextMonitor = contextMonitor
+
+            // Sync UI state with AppCommandExecutor
+            ps4Controller.appCommandExecutor.showPS4Panel = showPS4Controller
+            ps4Controller.appCommandExecutor.showPS4StatusBar = showPS4StatusBar
+
+            // FIX: Bidirectional binding with weak captures to prevent retain cycles
+            // Observe AppCommandExecutor state changes and update local @State
+            ps4Controller.appCommandExecutor.$showPS4Panel
+                .receive(on: DispatchQueue.main)
+                .sink { [weak subscriptionManager] newValue in
+                    guard subscriptionManager != nil else { return }
+                    showPS4Controller = newValue
+                }
+                .store(in: &subscriptionManager.cancellables)
+
+            ps4Controller.appCommandExecutor.$showPS4StatusBar
+                .receive(on: DispatchQueue.main)
+                .sink { [weak subscriptionManager] newValue in
+                    guard subscriptionManager != nil else { return }
+                    showPS4StatusBar = newValue
+                }
+                .store(in: &subscriptionManager.cancellables)
+        }
+        .onChange(of: terminalController) { _, newController in
+            // FIX: Update AppCommandExecutor's terminal controller when it becomes available
+            // Terminal controller is set asynchronously after view initialization via binding
+            ps4Controller.appCommandExecutor.terminalController = newController
+        }
     }
 
     var batteryTooltip: String {

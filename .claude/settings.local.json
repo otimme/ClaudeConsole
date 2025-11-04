@@ -17,7 +17,7 @@
       "Bash(python3:*)",
       "Bash(sips:*)",
       "Bash(iconutil:*)",
-      "Bash(xed:*)"
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
