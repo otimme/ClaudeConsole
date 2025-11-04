@@ -328,24 +328,39 @@ Users can:
 
 ## Implementation Phases
 
-### Phase 1: Core Radial Menu (4-5 hours)
+### Phase 1: Core Radial Menu (4-5 hours) ✅ COMPLETED
+
+**Status:** Completed on 2025-01-04
 
 **Tasks:**
 - [x] Research game radial menu patterns and UX best practices
-- [ ] Create `RadialMenuView.swift` - SwiftUI overlay component
-- [ ] Create `RadialMenuController.swift` - Business logic and state management
-- [ ] Implement analog stick angle/magnitude calculation
-- [ ] Implement 8-segment layout with compass directions
-- [ ] Add segment selection logic with dead zone
-- [ ] Create basic visual design (circles, segments, labels)
-- [ ] Add fade in/out animations
-- [ ] Test with hardcoded actions
+- [x] Create `RadialMenuView.swift` - SwiftUI overlay component
+- [x] Create `RadialMenuController.swift` - Business logic and state management
+- [x] Create `RadialMenuModels.swift` - Data structures and default configurations
+- [x] Implement analog stick angle/magnitude calculation with Y-axis inversion
+- [x] Implement 8-segment layout with compass directions
+- [x] Add segment selection logic with dead zone (20% entry, 15% exit)
+- [x] Create basic visual design (circles, segments, labels)
+- [x] Add fade in/out animations
+- [x] Test with hardcoded actions (L1: Quick Actions, R1: Git Commands)
+- [x] Add objectWillChange forwarding for immediate menu visibility
+- [x] Hide analog stick indicator (commented for debugging)
 
 **Deliverables:**
-- Working radial menu overlay
-- Analog stick selection functional
-- Basic visual design complete
-- Single hardcoded profile (Git commands)
+- ✅ Working radial menu overlay with full-screen dimmed background
+- ✅ Analog stick selection functional with proper Y-axis handling
+- ✅ Basic visual design complete with pie slices, icons, and labels
+- ✅ Two hardcoded menus: L1 (Quick Actions) and R1 (Git Commands)
+- ✅ 300ms hold detection on L1/R1 buttons
+- ✅ Circle button cancellation
+- ✅ Segment highlighting with scale animations
+- ✅ Proper integration with PS4ControllerController
+
+**Implementation Notes:**
+- Y-axis handling required special attention: visual indicator uses raw Y, angle calculation uses inverted Y
+- Menu segments rotated -90° to align North with top of screen
+- 50ms debounce on segment selection prevents flickering
+- Notification-based action execution integrates cleanly with existing button action system
 
 ### Phase 2: Configuration & Profiles (3-4 hours)
 
@@ -1019,15 +1034,14 @@ private func detectAndCompensateDrift() {
 
 **Total Estimated Time:** 11-14 hours
 
-- Phase 1: Core Radial Menu (4-5 hours)
-- Phase 2: Configuration & Profiles (3-4 hours)
+- ✅ Phase 1: Core Radial Menu (4-5 hours) - **COMPLETED 2025-01-04**
+- Phase 2: Configuration & Profiles (3-4 hours) - **IN PROGRESS**
 - Phase 3: Advanced Features (2-3 hours)
 - Phase 4: Polish & Testing (2 hours)
 
-**Recommended Schedule:**
-- Week 1: Phase 1 (working prototype)
-- Week 2: Phase 2 (full feature set)
-- Week 3: Phase 3 & 4 (polish and release)
+**Actual Progress:**
+- Phase 1 completed in ~5 hours including testing and Y-axis fixes
+- Committed to branch: `radial-menu` (commits: 2e7eb6a, 2634e54)
 
 ## References
 
