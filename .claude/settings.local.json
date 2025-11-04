@@ -16,7 +16,8 @@
       "Bash(swift test_migration.swift:*)",
       "Bash(python3:*)",
       "Bash(sips:*)",
-      "Bash(iconutil:*)"
+      "Bash(iconutil:*)",
+      "Bash(xed:*)"
     ],
     "deny": [],
     "ask": []
