@@ -126,6 +126,12 @@ struct ContentView: View {
                     RadialMenuView(controller: ps4Controller.radialMenuController)
                         .zIndex(50) // Below error banner, above terminal
                 }
+
+                // Profile switcher overlay (full screen)
+                if ps4Controller.profileSwitcherController.isVisible {
+                    ProfileSwitcherView(controller: ps4Controller.profileSwitcherController)
+                        .zIndex(51) // Above radial menu
+                }
             }
 
                 // PS4 Controller panel (collapsible)

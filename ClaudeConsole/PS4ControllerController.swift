@@ -21,6 +21,7 @@ class PS4ControllerController: ObservableObject {
     let mapping = PS4ButtonMapping()
     let appCommandExecutor = AppCommandExecutor()
     let radialMenuController = RadialMenuController()
+    let profileSwitcherController: ProfileSwitcherController
 
     @Published var isEnabled = true
     @Published var showVisualizer = true
@@ -45,6 +46,9 @@ class PS4ControllerController: ObservableObject {
     private var pushToTalkState: PushToTalkState = .idle
 
     init() {
+        // Initialize profileSwitcherController with the radialMenuController's profileManager
+        profileSwitcherController = ProfileSwitcherController(profileManager: radialMenuController.profileManager)
+
         // Forward monitor's objectWillChange to trigger UI updates
         monitor.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -63,6 +67,14 @@ class PS4ControllerController: ObservableObject {
 
         // Forward radialMenuController's objectWillChange
         radialMenuController.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        // Forward profileSwitcherController's objectWillChange
+        profileSwitcherController.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -107,7 +119,7 @@ class PS4ControllerController: ObservableObject {
             }
         }
 
-        // Monitor analog stick input for radial menu
+        // Monitor right analog stick input for radial menu
         monitor.$rightStickX
             .combineLatest(monitor.$rightStickY)
             .receive(on: DispatchQueue.main)
@@ -115,6 +127,18 @@ class PS4ControllerController: ObservableObject {
                 guard let self = self else { return }
                 if self.radialMenuController.isVisible {
                     self.radialMenuController.handleAnalogStickInput(x: x, y: y)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Monitor left analog stick input for profile switcher
+        monitor.$leftStickX
+            .combineLatest(monitor.$leftStickY)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] x, y in
+                guard let self = self else { return }
+                if self.profileSwitcherController.isVisible {
+                    self.profileSwitcherController.handleAnalogStickInput(x: x, y: y)
                 }
             }
             .store(in: &cancellables)
@@ -130,6 +154,11 @@ class PS4ControllerController: ObservableObject {
         monitor.onButtonPressed = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
 
+            // Block normal button actions if profile switcher is visible
+            guard !self.profileSwitcherController.isVisible else {
+                return  // Block all actions while profile switcher is open
+            }
+
             // Block normal button actions if radial menu is visible
             guard !self.radialMenuController.isVisible else {
                 // Only allow Circle to cancel menu
@@ -137,6 +166,12 @@ class PS4ControllerController: ObservableObject {
                     self.radialMenuController.cancelMenu()
                 }
                 return
+            }
+
+            // Check for touchpad button press for profile switcher
+            if button == .touchpad {
+                self.profileSwitcherController.handleTouchpadPress()
+                return  // Don't execute any other actions for touchpad
             }
 
             // Check for L1/R1 hold for radial menu
@@ -164,6 +199,12 @@ class PS4ControllerController: ObservableObject {
         // Handle button releases
         monitor.onButtonReleased = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
+
+            // Handle touchpad release for profile switcher
+            if button == .touchpad {
+                self.profileSwitcherController.handleTouchpadRelease()
+                return
+            }
 
             // Handle radial menu release for L1/R1
             if button == .l1 || button == .r1 {

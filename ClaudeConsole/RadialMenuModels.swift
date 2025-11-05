@@ -200,6 +200,36 @@ extension RadialMenuConfiguration {
             .northwest: .textMacro(text: "sudo ", autoEnter: false)
         ]
     )
+
+    /// Git Advanced menu
+    static let gitAdvancedMenu = RadialMenuConfiguration(
+        name: "Git Advanced",
+        segments: [
+            .north: .textMacro(text: "git log --graph --oneline --all", autoEnter: true),
+            .northeast: .textMacro(text: "git rebase -i HEAD~5", autoEnter: false),
+            .east: .textMacro(text: "git cherry-pick ", autoEnter: false),
+            .southeast: .textMacro(text: "git stash pop", autoEnter: true),
+            .south: .textMacro(text: "git reset --soft HEAD~1", autoEnter: true),
+            .southwest: .textMacro(text: "git reflog", autoEnter: true),
+            .west: .textMacro(text: "git merge ", autoEnter: false),
+            .northwest: .textMacro(text: "git checkout -b ", autoEnter: false)
+        ]
+    )
+
+    /// Testing menu
+    static let testingMenu = RadialMenuConfiguration(
+        name: "Testing",
+        segments: [
+            .north: .textMacro(text: "npm test", autoEnter: true),
+            .northeast: .textMacro(text: "npm run test:watch", autoEnter: true),
+            .east: .textMacro(text: "pytest", autoEnter: true),
+            .southeast: .textMacro(text: "pytest -v", autoEnter: true),
+            .south: .textMacro(text: "cargo test", autoEnter: true),
+            .southwest: .textMacro(text: "go test ./...", autoEnter: true),
+            .west: .textMacro(text: "swift test", autoEnter: true),
+            .northwest: .textMacro(text: "npm run test:coverage", autoEnter: true)
+        ]
+    )
 }
 
 // MARK: - Default Profiles
@@ -247,6 +277,20 @@ extension RadialMenuProfile {
         r1Menu: .defaultR1Menu
     )
 
+    /// Git Advanced profile - Quick Actions + Git Advanced
+    static let gitAdvancedProfile = RadialMenuProfile(
+        name: "Git Advanced",
+        l1Menu: .defaultL1Menu,
+        r1Menu: .gitAdvancedMenu
+    )
+
+    /// Testing profile - Quick Actions + Testing Commands
+    static let testingProfile = RadialMenuProfile(
+        name: "Testing",
+        l1Menu: .defaultL1Menu,
+        r1Menu: .testingMenu
+    )
+
     /// All default profiles
     static let allDefaults: [RadialMenuProfile] = [
         .defaultProfile,
@@ -254,6 +298,8 @@ extension RadialMenuProfile {
         .npmProfile,
         .navigationProfile,
         .claudeProfile,
-        .devToolsProfile
+        .devToolsProfile,
+        .gitAdvancedProfile,
+        .testingProfile
     ]
 }
