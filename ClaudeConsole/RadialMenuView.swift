@@ -51,17 +51,10 @@ struct RadialMenuView: View {
                     // Center label showing selected action
                     if let selectedDirection = controller.selectedDirection,
                        let selectedAction = config.action(for: selectedDirection) {
-                        VStack(spacing: 4) {
-                            Text(selectedDirection.rawValue)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(SwiftUI.Color.white.opacity(0.6))
-
-                            Text(selectedAction.displayString)
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(SwiftUI.Color.white)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                        }
+                        ActionPreviewTooltip(
+                            direction: selectedDirection,
+                            action: selectedAction
+                        )
                         .frame(width: innerRadius * 2 - 20)
                     } else {
                         // Menu title when no selection
@@ -207,6 +200,109 @@ struct RadialSegmentView: View {
             }
         default:
             return action.shortDescription
+        }
+    }
+}
+
+// MARK: - Action Preview Tooltip
+
+struct ActionPreviewTooltip: View {
+    let direction: CompassDirection
+    let action: ButtonAction
+
+    var body: some View {
+        VStack(spacing: 6) {
+            // Direction indicator
+            Text(direction.rawValue)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(SwiftUI.Color.white.opacity(0.6))
+                .textCase(.uppercase)
+
+            // Action type badge
+            Text(actionTypeName)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(SwiftUI.Color.white.opacity(0.9))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(actionTypeColor.opacity(0.3))
+                .cornerRadius(4)
+
+            // Action details
+            VStack(spacing: 2) {
+                Text(actionTitle)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(SwiftUI.Color.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+
+                if let subtitle = actionSubtitle {
+                    Text(subtitle)
+                        .font(.system(size: 9))
+                        .foregroundColor(SwiftUI.Color.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    private var actionTypeName: String {
+        switch action {
+        case .keyCommand: return "KEY PRESS"
+        case .textMacro: return "TEXT MACRO"
+        case .applicationCommand: return "APP COMMAND"
+        case .shellCommand: return "SHELL"
+        case .systemCommand: return "SYSTEM"
+        case .sequence: return "SEQUENCE"
+        }
+    }
+
+    private var actionTypeColor: SwiftUI.Color {
+        switch action {
+        case .keyCommand: return SwiftUI.Color.blue
+        case .textMacro: return SwiftUI.Color.green
+        case .applicationCommand: return SwiftUI.Color.purple
+        case .shellCommand: return SwiftUI.Color.orange
+        case .systemCommand: return SwiftUI.Color.red
+        case .sequence: return SwiftUI.Color.cyan
+        }
+    }
+
+    private var actionTitle: String {
+        switch action {
+        case .keyCommand(let cmd):
+            return cmd.displayString
+        case .textMacro(let text, _):
+            // Truncate long text
+            if text.count > 30 {
+                return String(text.prefix(27)) + "..."
+            }
+            return text
+        case .applicationCommand(let cmd):
+            return cmd.displayString
+        case .shellCommand(let command):
+            // Truncate long commands
+            if command.count > 30 {
+                return String(command.prefix(27)) + "..."
+            }
+            return command
+        case .systemCommand(let cmd):
+            return cmd.displayString
+        case .sequence(let actions):
+            return "\(actions.count) actions"
+        }
+    }
+
+    private var actionSubtitle: String? {
+        switch action {
+        case .textMacro(_, let autoEnter):
+            return autoEnter ? "Auto-enter: ON" : "Auto-enter: OFF"
+        case .shellCommand:
+            return "⚠️ Executes with permissions"
+        default:
+            return nil
         }
     }
 }
