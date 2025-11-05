@@ -152,13 +152,14 @@ See [SPEECH_TO_TEXT_SETUP.md](SPEECH_TO_TEXT_SETUP.md) for detailed setup instru
 
 ## Documentation
 
-Comprehensive guides are available in the repository:
+**📖 [Complete Documentation Index](docs/README.md)** - Organized documentation with full table of contents
 
-- **[PS4_CONTROLLER_GUIDE.md](PS4_CONTROLLER_GUIDE.md)**: Complete guide to controller features and setup
-- **[RADIAL_MENU_IMPLEMENTATION_PLAN.md](RADIAL_MENU_IMPLEMENTATION_PLAN.md)**: Technical design document for radial menu system
-- **[SPEECH_TO_TEXT_SETUP.md](SPEECH_TO_TEXT_SETUP.md)**: Speech-to-text feature setup and configuration
+**Quick Links:**
+- **[PS4 Controller Guide](docs/guides/PS4_CONTROLLER_GUIDE.md)**: Complete guide to controller features and setup
+- **[Speech-to-Text Setup](docs/guides/SPEECH_TO_TEXT_SETUP.md)**: Speech-to-text feature setup and configuration
+- **[Radial Menu Implementation](docs/implementation/RADIAL_MENU_IMPLEMENTATION_PLAN.md)**: Technical design document
+- **[Testing Checklist](docs/testing/PHASE_2_TESTING_CHECKLIST.md)**: Comprehensive testing guide (200+ test cases)
 - **[CLAUDE.md](CLAUDE.md)**: Project overview and architecture for Claude Code AI assistant
-- **[PHASE_2_TESTING_CHECKLIST.md](PHASE_2_TESTING_CHECKLIST.md)**: Testing guide with 200+ test cases
 
 ## License
 

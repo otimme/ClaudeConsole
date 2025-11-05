@@ -108,7 +108,7 @@ Free space: 131k
 
 **Visual Feedback:** Red dot overlay shows "Recording...", spinner shows "Transcribing..."
 
-See `SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
+See `docs/guides/SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 
 ## PS4 Controller Support
 
@@ -150,7 +150,7 @@ See `SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 - D-Pad → Arrow keys, L1/R1 → Page Up/Down, L2/R2 → Home/End
 - Options → Ctrl+C, Share → Ctrl+Z, L3/R3 → Ctrl+A/E
 
-See `PS4_CONTROLLER_GUIDE.md` for detailed setup and usage instructions.
+See `docs/guides/PS4_CONTROLLER_GUIDE.md` for detailed setup and usage instructions.
 
 ## Radial Menu System
 
@@ -211,7 +211,7 @@ See `PS4_CONTROLLER_GUIDE.md` for detailed setup and usage instructions.
 3. **App Command**: Built-in app functions (/usage, /context, speech-to-text, etc.)
 4. **Shell Command**: Execute arbitrary shell commands (⚠️ with full permissions)
 
-See `RADIAL_MENU_IMPLEMENTATION_PLAN.md` for detailed implementation guide and `PHASE_2_TESTING_CHECKLIST.md` for comprehensive testing instructions.
+See `docs/implementation/RADIAL_MENU_IMPLEMENTATION_PLAN.md` for detailed implementation guide and `docs/testing/PHASE_2_TESTING_CHECKLIST.md` for comprehensive testing instructions.
 
 ## Key Implementation Notes
 
