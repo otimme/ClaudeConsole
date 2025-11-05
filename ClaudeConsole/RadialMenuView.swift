@@ -116,7 +116,12 @@ struct RadialSegmentView: View {
                     lineWidth: isSelected ? 2 : 1
                 )
             )
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+            .animation(
+                isSelected
+                    ? .spring(response: 0.3, dampingFraction: 0.7)
+                    : .easeOut(duration: 0.15),
+                value: isSelected
+            )
 
             // Icon and label with enhanced animations
             VStack(spacing: 4) {
@@ -138,7 +143,12 @@ struct RadialSegmentView: View {
             .offset(labelOffset(for: direction))
         }
         .scaleEffect(isSelected ? 1.08 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isSelected)
+        .animation(
+            isSelected
+                ? .spring(response: 0.25, dampingFraction: 0.65)
+                : .easeOut(duration: 0.12),
+            value: isSelected
+        )
     }
 
     // Calculate position for label based on direction
