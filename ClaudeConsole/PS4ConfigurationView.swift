@@ -278,14 +278,14 @@ struct KeyEventHandler: NSViewRepresentable {
     @Binding var isCapturing: Bool
     let onKeyPress: (String, KeyModifiers) -> Void
 
-    func makeNSView(context: Context) -> KeyCaptureView {
-        let view = KeyCaptureView()
+    func makeNSView(context: Context) -> PS4KeyCaptureView {
+        let view = PS4KeyCaptureView()
         view.onKeyPress = onKeyPress
         view.isCapturing = isCapturing
         return view
     }
 
-    func updateNSView(_ nsView: KeyCaptureView, context: Context) {
+    func updateNSView(_ nsView: PS4KeyCaptureView, context: Context) {
         nsView.isCapturing = isCapturing
         if isCapturing {
             nsView.window?.makeFirstResponder(nsView)
@@ -293,7 +293,7 @@ struct KeyEventHandler: NSViewRepresentable {
     }
 }
 
-class KeyCaptureView: NSView {
+class PS4KeyCaptureView: NSView {
     var onKeyPress: ((String, KeyModifiers) -> Void)?
     var isCapturing = false
 
