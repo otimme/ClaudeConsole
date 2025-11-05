@@ -9,7 +9,7 @@
 import Foundation
 
 // MARK: - Main Button Action Enum
-enum ButtonAction: Codable, Equatable {
+enum ButtonAction: Codable, Equatable, Hashable {
     case keyCommand(KeyCommand)
     case textMacro(text: String, autoEnter: Bool)
     case applicationCommand(AppCommand)
@@ -152,8 +152,9 @@ enum ButtonAction: Codable, Equatable {
 
 // MARK: - Application Commands
 enum AppCommand: String, Codable, CaseIterable {
-    case triggerSpeechToText
-    case stopSpeechToText
+    case triggerSpeechToText         // Toggle mode: press to start/stop
+    case stopSpeechToText            // Explicit stop (for sequences)
+    case pushToTalkSpeech            // Push-to-talk: hold to record, release to transcribe
     case togglePS4Panel
     case toggleStatusBar
     case copyToClipboard
@@ -166,9 +167,11 @@ enum AppCommand: String, Codable, CaseIterable {
     var displayString: String {
         switch self {
         case .triggerSpeechToText:
-            return "🎤 Start Speech"
+            return "🎤 Toggle Speech"
         case .stopSpeechToText:
             return "🔇 Stop Speech"
+        case .pushToTalkSpeech:
+            return "🎤 Push-to-Talk"
         case .togglePS4Panel:
             return "🎮 Toggle Panel"
         case .toggleStatusBar:
@@ -191,9 +194,11 @@ enum AppCommand: String, Codable, CaseIterable {
     var description: String {
         switch self {
         case .triggerSpeechToText:
-            return "Start speech-to-text recording"
+            return "Toggle speech-to-text recording (on/off)"
         case .stopSpeechToText:
             return "Stop speech-to-text recording"
+        case .pushToTalkSpeech:
+            return "Hold to record, release to transcribe"
         case .togglePS4Panel:
             return "Toggle PS4 controller panel visibility"
         case .toggleStatusBar:
@@ -215,7 +220,7 @@ enum AppCommand: String, Codable, CaseIterable {
 }
 
 // MARK: - System Commands
-enum SystemCommand: Codable, Equatable {
+enum SystemCommand: Codable, Equatable, Hashable {
     case switchApplication(bundleId: String)
     case openURL(url: String)
     case runAppleScript(script: String)

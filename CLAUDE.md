@@ -152,6 +152,67 @@ See `SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 
 See `PS4_CONTROLLER_GUIDE.md` for detailed setup and usage instructions.
 
+## Radial Menu System
+
+**Context-Aware Command Menus**: L1/R1 shoulder buttons trigger radial menus with 8-directional selection using the right analog stick.
+
+**Components:**
+- `RadialMenuController`: Orchestrates menu display, segment selection, and action execution
+- `RadialMenuModels`: Data models for menus, profiles, and segments (Codable for persistence)
+- `RadialMenuProfileManager`: Manages profiles with UserDefaults persistence and import/export
+- `RadialMenuProfileSelector`: Compact widget in PS4 panel showing active profile
+- `RadialMenuConfigurationView`: Full-featured modal editor for profiles and segments
+- `RadialMenuView`: SwiftUI overlay displaying the radial menu with visual feedback
+
+**Features:**
+- **8-Direction Selection**: N, NE, E, SE, S, SW, W, NW segments
+- **Profile System**: 6 default profiles (Default, Docker, NPM, Navigation, Claude, Dev Tools)
+- **Profile Management**: Create, duplicate, delete, reset to defaults
+- **Import/Export**: Share profiles via JSON files
+- **4 Action Types**: Key commands, text macros, app commands, shell commands
+- **L1 & R1 Menus**: Separate menu configurations for each shoulder button
+- **Visual Preview**: Interactive segment preview in configuration UI
+- **Persistent Storage**: All profiles saved to UserDefaults automatically
+
+**Flow:**
+1. User holds L1 or R1 → `RadialMenuController` shows menu overlay after 300ms
+2. User moves right analog stick → Selects direction (N/NE/E/SE/S/SW/W/NW)
+3. Selected segment highlights with visual feedback
+4. User releases L1/R1 → Executes configured action for that segment
+5. Menu fades out
+
+**Configuration UI:**
+- **Split View Layout**: Segment list (left) + editor (right)
+- **Visual Radial Preview**: Interactive 8-segment pie chart
+- **Action Editor**: Configure key commands, text macros, app commands, or shell commands
+- **Profile Selector**: Quick dropdown to switch between profiles
+- **Import/Export**: Native file pickers for JSON backup/restore
+
+**Default Profiles:**
+- **Default**: Quick Actions (L1: copy/paste/clear) + Git Commands (R1: status/push/pull)
+- **Docker**: Quick Actions (L1) + Docker commands (R1: ps/logs/restart)
+- **NPM**: Quick Actions (L1) + NPM commands (R1: install/build/test)
+- **Navigation**: Quick Actions (L1) + Terminal navigation (R1: cd shortcuts)
+- **Claude**: Claude commands (L1: /usage/context) + Git (R1)
+- **Dev Tools**: Development tools (L1: linters/formatters) + Git (R1)
+
+**Implementation Details:**
+- Uses Apple's GameController framework for analog stick input
+- 50ms debounce on segment selection to prevent flickering
+- Segments rotated -90° to align North with screen top
+- Notification-based action execution integrates with existing button system
+- Profile data stored as JSON in UserDefaults (`radialMenuProfiles` key)
+- Custom `RadialSegmentShape` using SwiftUI Shape protocol for pie slices
+- Key capture prevents Tab/Enter/Escape from affecting UI navigation
+
+**Action Types:**
+1. **Key Command**: Keyboard shortcuts with modifiers (⌘⌃⌥⇧)
+2. **Text Macro**: Type text into terminal (with optional auto-enter)
+3. **App Command**: Built-in app functions (/usage, /context, speech-to-text, etc.)
+4. **Shell Command**: Execute arbitrary shell commands (⚠️ with full permissions)
+
+See `RADIAL_MENU_IMPLEMENTATION_PLAN.md` for detailed implementation guide and `PHASE_2_TESTING_CHECKLIST.md` for comprehensive testing instructions.
+
 ## Key Implementation Notes
 
 - `UsageMonitor` runs on background queue to avoid UI thread blocking during initialization
