@@ -56,11 +56,13 @@ struct RadialMenuView: View {
                             action: selectedAction
                         )
                         .frame(width: innerRadius * 2 - 20)
+                        .transition(.scale.combined(with: .opacity))
                     } else {
                         // Menu title when no selection
                         Text(config.name)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(SwiftUI.Color.white.opacity(0.8))
+                            .transition(.opacity)
                     }
 
                     // Analog stick position indicator (optional, helpful for learning)
@@ -71,8 +73,8 @@ struct RadialMenuView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .animation(.easeOut(duration: 0.15), value: controller.isVisible)
-        .animation(.easeOut(duration: 0.08), value: controller.selectedDirection)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: controller.isVisible)
+        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: controller.selectedDirection)
     }
 }
 
@@ -87,7 +89,7 @@ struct RadialSegmentView: View {
 
     var body: some View {
         ZStack {
-            // Pie slice shape
+            // Pie slice shape with glow effect
             // Subtract 90° to convert our North=0° to SwiftUI's Up=270°
             PieSlice(
                 startAngle: .degrees(direction.angle - 90 - 22.5),
@@ -96,6 +98,12 @@ struct RadialSegmentView: View {
                 outerRadius: menuRadius
             )
             .fill(isSelected ? SwiftUI.Color(hex: "#4A9EFF") : SwiftUI.Color(hex: "#2A2A2A"))
+            .shadow(
+                color: isSelected ? SwiftUI.Color(hex: "#4A9EFF").opacity(0.6) : SwiftUI.Color.clear,
+                radius: isSelected ? 12 : 0,
+                x: 0,
+                y: 0
+            )
             .overlay(
                 PieSlice(
                     startAngle: .degrees(direction.angle - 90 - 22.5),
@@ -103,17 +111,25 @@ struct RadialSegmentView: View {
                     innerRadius: innerRadius,
                     outerRadius: menuRadius
                 )
-                .stroke(SwiftUI.Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(
+                    isSelected ? SwiftUI.Color.white.opacity(0.4) : SwiftUI.Color.white.opacity(0.1),
+                    lineWidth: isSelected ? 2 : 1
+                )
             )
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
 
-            // Icon and label
+            // Icon and label with enhanced animations
             VStack(spacing: 4) {
                 Image(systemName: iconForAction(action))
-                    .font(.system(size: 24))
+                    .font(.system(size: isSelected ? 26 : 24))
                     .foregroundColor(isSelected ? SwiftUI.Color.white : SwiftUI.Color.gray)
+                    .shadow(
+                        color: isSelected ? SwiftUI.Color.white.opacity(0.3) : SwiftUI.Color.clear,
+                        radius: 4
+                    )
 
                 Text(shortLabel(for: action))
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: isSelected ? .bold : .medium))
                     .foregroundColor(isSelected ? SwiftUI.Color.white : SwiftUI.Color.gray)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -121,7 +137,8 @@ struct RadialSegmentView: View {
             .frame(width: 60)
             .offset(labelOffset(for: direction))
         }
-        .scaleEffect(isSelected ? 1.05 : 1.0)
+        .scaleEffect(isSelected ? 1.08 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isSelected)
     }
 
     // Calculate position for label based on direction
