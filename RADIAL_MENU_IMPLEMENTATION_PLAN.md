@@ -362,23 +362,44 @@ Users can:
 - 50ms debounce on segment selection prevents flickering
 - Notification-based action execution integrates cleanly with existing button action system
 
-### Phase 2: Configuration & Profiles (3-4 hours)
+### Phase 2: Configuration & Profiles (3-4 hours) ✅ COMPLETED
+
+**Status:** Completed on 2025-01-04
+**Actual Time:** ~4 hours
 
 **Tasks:**
-- [ ] Create `RadialMenuProfile` and `RadialSegment` data models
-- [ ] Implement Codable for UserDefaults persistence
-- [ ] Create 6 default profiles (Git, Docker, NPM, Navigation, App Commands, Custom)
-- [ ] Add profile selector in PS4 Configuration UI
-- [ ] Build radial menu editor UI (drag icons to segments)
-- [ ] Implement action picker for each segment
-- [ ] Add icon/color customization
-- [ ] Add profile import/export
+- [x] Create `RadialMenuProfile` and `RadialSegment` data models
+- [x] Implement Codable for UserDefaults persistence
+- [x] Create 6 default profiles (Default, Docker, NPM, Navigation, Claude, Dev Tools)
+- [x] Add profile selector in PS4 Configuration UI
+- [x] Build radial menu editor UI (visual preview + segment list)
+- [x] Implement action picker for each segment (4 types: Key, Text, App, Shell)
+- [x] Add custom label customization
+- [x] Add profile import/export (JSON files)
+- [x] Add profile management (create, duplicate, delete, reset)
 
 **Deliverables:**
-- Full profile system with persistence
-- 6 pre-built profiles
-- Profile editor UI
-- Profile switching interface
+- ✅ Full profile system with UserDefaults persistence
+- ✅ 6 pre-built profiles ready to use
+- ✅ Comprehensive profile editor UI (900x650 modal)
+- ✅ Profile switching interface in PS4 panel
+- ✅ Import/export functionality with native file pickers
+- ✅ Visual radial menu preview with clickable segments
+- ✅ Segment editor supporting all action types
+
+**New Files Created:**
+- `RadialMenuConfigurationView.swift` (~850 lines)
+- `RadialMenuProfileManager.swift` (149 lines)
+- `RadialMenuProfileSelector.swift` (73 lines - simplified after refactor)
+
+**Bug Fixes:**
+- Fixed Tab key capture preventing UI navigation
+- Fixed UI disappearing when switching to Key Press tab
+- Made entire segment rows clickable (not just text/icons)
+
+**Documentation:**
+- `PHASE_2_COMPLETE.md` - Implementation summary
+- `PHASE_2_TESTING_CHECKLIST.md` - Comprehensive testing guide (200+ tests)
 
 ### Phase 3: Advanced Features (2-3 hours)
 

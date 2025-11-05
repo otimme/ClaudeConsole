@@ -9,7 +9,7 @@
 import Foundation
 
 // MARK: - Main Button Action Enum
-enum ButtonAction: Codable, Equatable {
+enum ButtonAction: Codable, Equatable, Hashable {
     case keyCommand(KeyCommand)
     case textMacro(text: String, autoEnter: Bool)
     case applicationCommand(AppCommand)
@@ -220,7 +220,7 @@ enum AppCommand: String, Codable, CaseIterable {
 }
 
 // MARK: - System Commands
-enum SystemCommand: Codable, Equatable {
+enum SystemCommand: Codable, Equatable, Hashable {
     case switchApplication(bundleId: String)
     case openURL(url: String)
     case runAppleScript(script: String)

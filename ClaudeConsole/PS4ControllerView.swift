@@ -32,6 +32,12 @@ struct PS4ControllerView: View {
             }
             .padding(.horizontal)
 
+            // Radial Menu Profile Selector
+            RadialMenuProfileSelector(profileManager: controller.radialMenuController.profileManager)
+                .padding(.horizontal)
+
+            Divider()
+
             // Controller visual
             ZStack {
                 // Controller body shape

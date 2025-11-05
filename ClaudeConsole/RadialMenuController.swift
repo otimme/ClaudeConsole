@@ -23,16 +23,20 @@ class RadialMenuController: ObservableObject {
     /// Current analog stick position (for visual indicator)
     @Published var stickPosition: CGPoint = .zero
 
+    // MARK: - Profile Manager
+
+    let profileManager = RadialMenuProfileManager()
+
     // MARK: - Menu Types
 
     enum MenuType {
         case l1
         case r1
 
-        var configuration: RadialMenuConfiguration {
+        func configuration(from profile: RadialMenuProfile) -> RadialMenuConfiguration {
             switch self {
-            case .l1: return .defaultL1Menu
-            case .r1: return .defaultR1Menu
+            case .l1: return profile.l1Menu
+            case .r1: return profile.r1Menu
             }
         }
 
@@ -163,7 +167,7 @@ class RadialMenuController: ObservableObject {
         guard let direction = selectedDirection else { return }
         guard let menuType = activeMenuType else { return }
 
-        let configuration = menuType.configuration
+        let configuration = menuType.configuration(from: profileManager.activeProfile)
         guard let action = configuration.action(for: direction) else { return }
 
         // Set executing flag to prevent double-execution
@@ -185,7 +189,8 @@ class RadialMenuController: ObservableObject {
 
     /// Get the currently active menu configuration
     var activeConfiguration: RadialMenuConfiguration? {
-        return activeMenuType?.configuration
+        guard let menuType = activeMenuType else { return nil }
+        return menuType.configuration(from: profileManager.activeProfile)
     }
 }
 

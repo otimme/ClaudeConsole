@@ -63,7 +63,7 @@ enum CompassDirection: String, CaseIterable, Codable {
 }
 
 /// Configuration for a single radial menu (8 segments)
-struct RadialMenuConfiguration {
+struct RadialMenuConfiguration: Codable, Equatable, Hashable {
     let name: String
     let segments: [CompassDirection: ButtonAction]
 
@@ -75,6 +75,21 @@ struct RadialMenuConfiguration {
     /// Check if a direction has an action assigned
     func hasAction(for direction: CompassDirection) -> Bool {
         return segments[direction] != nil
+    }
+}
+
+/// Complete profile containing L1 and R1 menu configurations
+struct RadialMenuProfile: Codable, Equatable, Identifiable, Hashable {
+    let id: UUID
+    var name: String
+    var l1Menu: RadialMenuConfiguration
+    var r1Menu: RadialMenuConfiguration
+
+    init(id: UUID = UUID(), name: String, l1Menu: RadialMenuConfiguration, r1Menu: RadialMenuConfiguration) {
+        self.id = id
+        self.name = name
+        self.l1Menu = l1Menu
+        self.r1Menu = r1Menu
     }
 }
 
@@ -110,4 +125,135 @@ extension RadialMenuConfiguration {
             .northwest: .textMacro(text: "git stash", autoEnter: true)
         ]
     )
+
+    /// Docker Commands menu
+    static let dockerMenu = RadialMenuConfiguration(
+        name: "Docker",
+        segments: [
+            .north: .textMacro(text: "docker ps", autoEnter: true),
+            .northeast: .textMacro(text: "docker images", autoEnter: true),
+            .east: .textMacro(text: "docker compose up -d", autoEnter: true),
+            .southeast: .textMacro(text: "docker compose down", autoEnter: true),
+            .south: .textMacro(text: "docker logs ", autoEnter: false),
+            .southwest: .textMacro(text: "docker exec -it ", autoEnter: false),
+            .west: .textMacro(text: "docker compose logs -f", autoEnter: true),
+            .northwest: .textMacro(text: "docker system prune -a", autoEnter: false)
+        ]
+    )
+
+    /// NPM/Node.js Commands menu
+    static let npmMenu = RadialMenuConfiguration(
+        name: "NPM",
+        segments: [
+            .north: .textMacro(text: "npm start", autoEnter: true),
+            .northeast: .textMacro(text: "npm run build", autoEnter: true),
+            .east: .textMacro(text: "npm test", autoEnter: true),
+            .southeast: .textMacro(text: "npm run dev", autoEnter: true),
+            .south: .textMacro(text: "npm install ", autoEnter: false),
+            .southwest: .textMacro(text: "npm run lint", autoEnter: true),
+            .west: .textMacro(text: "npm outdated", autoEnter: true),
+            .northwest: .textMacro(text: "npm update", autoEnter: true)
+        ]
+    )
+
+    /// Terminal Navigation menu
+    static let navigationMenu = RadialMenuConfiguration(
+        name: "Navigation",
+        segments: [
+            .north: .textMacro(text: "ls -la", autoEnter: true),
+            .northeast: .textMacro(text: "cd ..", autoEnter: true),
+            .east: .textMacro(text: "pwd", autoEnter: true),
+            .southeast: .textMacro(text: "find . -name ", autoEnter: false),
+            .south: .textMacro(text: "cd ", autoEnter: false),
+            .southwest: .textMacro(text: "mkdir ", autoEnter: false),
+            .west: .textMacro(text: "cd ~", autoEnter: true),
+            .northwest: .textMacro(text: "tree -L 2", autoEnter: true)
+        ]
+    )
+
+    /// Claude Commands menu
+    static let claudeMenu = RadialMenuConfiguration(
+        name: "Claude",
+        segments: [
+            .north: .applicationCommand(.showUsage),
+            .northeast: .applicationCommand(.showContext),
+            .east: .applicationCommand(.refreshStats),
+            .southeast: .applicationCommand(.togglePS4Panel),
+            .south: .textMacro(text: "/clear", autoEnter: true),
+            .southwest: .textMacro(text: "/help", autoEnter: true),
+            .west: .applicationCommand(.pushToTalkSpeech),
+            .northwest: .applicationCommand(.clearTerminal)
+        ]
+    )
+
+    /// Development Tools menu
+    static let devToolsMenu = RadialMenuConfiguration(
+        name: "Dev Tools",
+        segments: [
+            .north: .textMacro(text: "code .", autoEnter: true),
+            .northeast: .textMacro(text: "git log --oneline -10", autoEnter: true),
+            .east: .textMacro(text: "grep -r ", autoEnter: false),
+            .southeast: .textMacro(text: "tail -f ", autoEnter: false),
+            .south: .textMacro(text: "ps aux | grep ", autoEnter: false),
+            .southwest: .textMacro(text: "kill -9 ", autoEnter: false),
+            .west: .textMacro(text: "chmod +x ", autoEnter: false),
+            .northwest: .textMacro(text: "sudo ", autoEnter: false)
+        ]
+    )
+}
+
+// MARK: - Default Profiles
+
+extension RadialMenuProfile {
+    /// Default profile - Quick Actions + Git
+    static let defaultProfile = RadialMenuProfile(
+        name: "Default",
+        l1Menu: .defaultL1Menu,
+        r1Menu: .defaultR1Menu
+    )
+
+    /// Docker profile - Quick Actions + Docker
+    static let dockerProfile = RadialMenuProfile(
+        name: "Docker",
+        l1Menu: .defaultL1Menu,
+        r1Menu: .dockerMenu
+    )
+
+    /// NPM profile - Quick Actions + NPM
+    static let npmProfile = RadialMenuProfile(
+        name: "NPM",
+        l1Menu: .defaultL1Menu,
+        r1Menu: .npmMenu
+    )
+
+    /// Navigation profile - Quick Actions + Terminal Navigation
+    static let navigationProfile = RadialMenuProfile(
+        name: "Navigation",
+        l1Menu: .defaultL1Menu,
+        r1Menu: .navigationMenu
+    )
+
+    /// Claude profile - Claude Commands + Git
+    static let claudeProfile = RadialMenuProfile(
+        name: "Claude",
+        l1Menu: .claudeMenu,
+        r1Menu: .defaultR1Menu
+    )
+
+    /// Dev Tools profile - Development Tools + Git
+    static let devToolsProfile = RadialMenuProfile(
+        name: "Dev Tools",
+        l1Menu: .devToolsMenu,
+        r1Menu: .defaultR1Menu
+    )
+
+    /// All default profiles
+    static let allDefaults: [RadialMenuProfile] = [
+        .defaultProfile,
+        .dockerProfile,
+        .npmProfile,
+        .navigationProfile,
+        .claudeProfile,
+        .devToolsProfile
+    ]
 }

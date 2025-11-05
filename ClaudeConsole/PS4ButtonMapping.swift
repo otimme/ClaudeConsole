@@ -10,7 +10,7 @@ import AppKit
 import os.log
 
 // Represents a keyboard command (key + modifiers)
-struct KeyCommand: Codable, Equatable {
+struct KeyCommand: Codable, Equatable, Hashable {
     let key: String
     let modifiers: KeyModifiers
 
@@ -196,7 +196,7 @@ struct KeyCommand: Codable, Equatable {
 }
 
 // Modifier keys
-struct KeyModifiers: Codable, OptionSet {
+struct KeyModifiers: Codable, OptionSet, Hashable {
     let rawValue: Int
 
     static let shift = KeyModifiers(rawValue: 1 << 0)
