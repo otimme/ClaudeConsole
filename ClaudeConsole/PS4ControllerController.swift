@@ -389,8 +389,29 @@ class PS4ControllerController: ObservableObject {
     private func executeSystemCommand(_ command: SystemCommand) {
         switch command {
         case .switchApplication(let bundleId):
-            // TODO: Implement app switching via Accessibility API
-            print("Switch to app: \(bundleId)")
+            // Switch to application by bundle ID using NSWorkspace
+            let workspace = NSWorkspace.shared
+
+            // Try to activate the running application first
+            if let app = workspace.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
+                // Use modern activation method without deprecated option
+                app.activate()
+            } else {
+                // If not running, try to launch it by bundle identifier
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = true
+
+                // Find the app URL by bundle ID
+                if let appURL = workspace.urlForApplication(withBundleIdentifier: bundleId) {
+                    workspace.openApplication(at: appURL, configuration: configuration) { app, error in
+                        if let error = error {
+                            print("Failed to launch app \(bundleId): \(error.localizedDescription)")
+                        }
+                    }
+                } else {
+                    print("Application with bundle ID \(bundleId) not found")
+                }
+            }
 
         case .openURL(let url):
             if let nsUrl = URL(string: url) {
@@ -398,8 +419,17 @@ class PS4ControllerController: ObservableObject {
             }
 
         case .runAppleScript(let script):
-            // TODO: Execute AppleScript safely
-            print("Execute AppleScript: \(script)")
+            // Execute AppleScript safely with error handling
+            let appleScript = NSAppleScript(source: script)
+            var errorInfo: NSDictionary?
+
+            if let result = appleScript?.executeAndReturnError(&errorInfo) {
+                // Script executed successfully
+                print("AppleScript executed successfully: \(result.stringValue ?? "")")
+            } else if let error = errorInfo {
+                // Script execution failed
+                print("AppleScript error: \(error)")
+            }
 
         case .takeScreenshot:
             // Send Cmd+Shift+4 for screenshot
