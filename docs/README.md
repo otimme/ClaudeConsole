@@ -13,9 +13,12 @@ Complete documentation for ClaudeConsole - a macOS terminal app with PS4 control
 
 ### For Developers
 
-**Implementation Details:**
+**Planning & Roadmap:**
+- [Main Application Plan](implementation/MAIN_APPLICATION_PLAN.md) - **Overall feature roadmap and priorities**
 - [PS4 Controller Enhancement Plan](implementation/PS4_CONTROLLER_ENHANCEMENT_PLAN.md) - Technical design document
 - [Radial Menu Implementation Plan](implementation/RADIAL_MENU_IMPLEMENTATION_PLAN.md) - Game-style menu architecture
+
+**Implementation Status:**
 - [Implementation Complete](implementation/IMPLEMENTATION_COMPLETE.md) - Error handling implementation
 - [Phase 2 Complete](implementation/PHASE_2_COMPLETE.md) - Configuration & profiles system
 - [Phase 3 Summary](implementation/PHASE_3_SUMMARY.md) - Visual polish & UX enhancements
