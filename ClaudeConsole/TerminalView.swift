@@ -40,6 +40,20 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         }
     }
 
+    // Event monitor for fixing selection coordinates
+    private var eventMonitor: Any?
+    private var cachedCellHeight: CGFloat?
+
+    private func getCellHeight() -> CGFloat {
+        if let cached = cachedCellHeight {
+            return cached
+        }
+        let lineHeight = font.ascender - font.descender + font.leading
+        let cellHeight = ceil(lineHeight)
+        cachedCellHeight = cellHeight
+        return cellHeight
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Ensure terminal becomes first responder when added to window
@@ -47,7 +61,94 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
             DispatchQueue.main.async { [weak self] in
                 self?.window?.makeFirstResponder(self)
             }
+            setupEventMonitor()
+        } else {
+            removeEventMonitor()
         }
+    }
+
+    deinit {
+        removeEventMonitor()
+    }
+
+    private func setupEventMonitor() {
+        removeEventMonitor()
+
+        // Monitor left mouse dragged and up events to fix selection coordinates
+        // This works around a SwiftTerm bug where mouseDragged doesn't account for yDisp
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            guard let self = self else { return event }
+
+            // Only process events within our view
+            guard let window = self.window,
+                  let contentView = window.contentView else {
+                return event
+            }
+
+            let locationInWindow = event.locationInWindow
+            let locationInContent = contentView.convert(locationInWindow, from: nil)
+            let locationInSelf = self.convert(locationInContent, from: contentView)
+
+            // Check if event is within our bounds
+            guard self.bounds.contains(locationInSelf) else {
+                return event
+            }
+
+            // Get the scroll offset (yDisp)
+            guard let terminal = self.terminal else {
+                return event
+            }
+
+            let yDisp = terminal.buffer.yDisp
+
+            // Always apply yDisp adjustment (no arbitrary limits)
+            // SwiftTerm's mouseDown adds yDisp but mouseDragged doesn't
+            // We compensate by shifting the Y coordinate
+            if yDisp != 0 {
+                let cellHeight = self.getCellHeight()
+
+                // In NSView coordinates (origin at bottom-left), we need to shift UP
+                // by the number of scrolled lines to make SwiftTerm calculate the correct buffer row
+                // Add one extra cell height to account for off-by-one error
+                let scrollOffset = CGFloat(yDisp) * cellHeight + cellHeight
+                let adjustedY = locationInWindow.y + scrollOffset
+                let adjustedLocation = CGPoint(x: locationInWindow.x, y: adjustedY)
+
+                // Create adjusted event
+                if let adjustedEvent = NSEvent.mouseEvent(
+                    with: event.type,
+                    location: adjustedLocation,
+                    modifierFlags: event.modifierFlags,
+                    timestamp: event.timestamp,
+                    windowNumber: event.windowNumber,
+                    context: nil,
+                    eventNumber: event.eventNumber,
+                    clickCount: event.clickCount,
+                    pressure: event.pressure
+                ) {
+                    return adjustedEvent
+                }
+            }
+
+            return event
+        }
+    }
+
+    private func removeEventMonitor() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+    }
+
+    // MARK: - Fix for text selection after scrolling
+
+    override func layout() {
+        super.layout()
+        cachedCellHeight = nil  // Clear cache on layout changes
+        // Force the terminal to update its internal coordinate system after layout changes
+        // This ensures selection coordinates are properly updated when scrolling
+        self.setNeedsDisplay(self.bounds)
     }
 
 
@@ -111,7 +212,7 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         // Check for Enter key after typing 'claude'
         if text.contains("\n") || text.contains("\r") {
             // Remove ANSI codes
-            var cleanBuffer = outputBuffer.replacingOccurrences(of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+            let cleanBuffer = outputBuffer.replacingOccurrences(of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
 
             // Get last 100 characters to check
             let searchText = String(cleanBuffer.suffix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -170,7 +271,9 @@ struct TerminalView: NSViewRepresentable {
     @Binding var terminalController: LocalProcessTerminalView?
 
     func makeNSView(context: Context) -> MonitoredLocalProcessTerminalView {
-        let terminalView = MonitoredLocalProcessTerminalView(frame: .zero)
+        // Use a reasonable initial frame instead of .zero to help with coordinate system
+        let initialFrame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let terminalView = MonitoredLocalProcessTerminalView(frame: initialFrame)
 
         // Configure terminal appearance
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -178,6 +281,10 @@ struct TerminalView: NSViewRepresentable {
         // Set terminal colors (default dark theme)
         terminalView.nativeForegroundColor = NSColor.textColor
         terminalView.nativeBackgroundColor = NSColor.textBackgroundColor
+
+        // Ensure proper autoresizing behavior
+        terminalView.autoresizingMask = [.width, .height]
+        terminalView.translatesAutoresizingMaskIntoConstraints = false
 
         // Start interactive login shell (just like Terminal.app)
         // This will load .zshrc and give you full environment
@@ -201,6 +308,11 @@ struct TerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MonitoredLocalProcessTerminalView, context: Context) {
-        // No updates needed - SwiftTerm handles everything
+        // Update layout when SwiftUI view geometry changes
+        // This ensures the terminal's coordinate system stays in sync
+        DispatchQueue.main.async {
+            nsView.needsLayout = true
+            nsView.layoutSubtreeIfNeeded()
+        }
     }
 }
