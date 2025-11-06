@@ -147,194 +147,47 @@ ClaudeConsole is a macOS terminal application that wraps the Claude Code CLI wit
 
 ---
 
+### 8. Project Launcher with CLAUDE.md Detection
+**Status:** ✅ Complete
+**Description:** Startup modal for quick project selection and auto-launch
+
+**Features:**
+- Scans directories for CLAUDE.md files to detect projects
+- SwiftUI modal with grouped project list
+- Search/filter by name or path
+- Groups by parent directory, sorts by modified date
+- Git branch detection and display
+- Remembers last selected project
+- 5-minute cache to prevent slow scans
+- Settings panel for search paths and configuration
+- Auto-launches on app startup (configurable)
+- Skip button to bypass launcher
+
+**Implementation Details:**
+- 5 new Swift files (701 lines total)
+- ProjectModel: Data structures with Codable support
+- ProjectScanner: Async directory scanning with recursion
+- ProjectCache: UserDefaults-based caching with expiration
+- ProjectLauncherController: State management with @Published
+- ProjectLauncherView: SwiftUI with search, grouping, settings
+- Integration: .sheet presentation in ContentView
+- Launch sequence: cd [path] + claude command with delays
+
+**Default Settings:**
+- Search paths: ~/Documents/Projects, ~/Code, ~/Development
+- Max depth: 3 levels
+- Exclude patterns: node_modules, .git, venv, __pycache__, .build, Pods
+- Cache expiration: 5 minutes
+
+**Development Time:** ~4 hours (faster than 8-10h estimate!)
+
+---
+
 ## Planned Features 🚀
 
-### Feature 2: Project Launcher with CLAUDE.md Detection
-**Status:** 📋 Planned
-**Priority:** High
-**Estimated Effort:** 8-10 hours
+*No features currently planned. Feature 1 & 2 complete ahead of schedule!*
 
-#### Description
-Add a startup screen that displays a list of Claude-enabled projects (identified by `CLAUDE.md` files) and automatically navigates to the selected project folder before starting the Claude CLI. This provides a quick way to resume work on any active project.
-
-#### Requirements
-
-**Project Detection:**
-- Scan user-specified directories for `CLAUDE.md` files
-- Configurable search paths (e.g., `~/Documents/Projects`, `~/Code`)
-- Configurable max depth (default: 3 levels)
-- Background scanning with progress indicator
-- Cache results to avoid slow startup
-
-**Project List Display:**
-- Modal window on app launch (before terminal)
-- Sorted by:
-  1. Folder structure (group by parent directory)
-  2. Modified date (most recent first)
-- Show for each project:
-  - Project name (folder name)
-  - Full path (truncated for display)
-  - Last modified date
-  - Parent folder hierarchy
-  - Optional: Git branch name if in repo
-
-**Project Selection:**
-- Click to select, Enter to launch
-- Search/filter by project name or path
-- Keyboard navigation (arrow keys, type to filter)
-- "Skip" or "Browse" button to open terminal without project
-- Remember last selected project (pre-select on next launch)
-
-**Launch Behavior:**
-- Navigate to selected project directory (`cd /path/to/project`)
-- Execute `claude` command automatically
-- Terminal immediately ready for use
-- Show "Starting Claude in [project name]..." message
-
-#### Implementation Plan
-
-**Phase 1: Project Scanner (2-3 hours)**
-- Create `ProjectScanner` class
-- Scan directories for `CLAUDE.md` files
-- Extract project metadata (name, path, modified date)
-- Handle symlinks and permission errors
-- Cache results in UserDefaults (5-minute TTL)
-
-**Phase 2: Project Launcher UI (3-4 hours)**
-- Create `ProjectLauncherView` SwiftUI modal
-- Project list with sorting and grouping
-- Search/filter functionality
-- Keyboard navigation support
-- "Skip" and "Refresh" buttons
-- Settings button to configure search paths
-
-**Phase 3: Terminal Integration (2 hours)**
-- Delay terminal startup until project selected
-- Pass selected project path to terminal
-- Execute `cd` + `claude` commands
-- Show loading state during startup
-- Handle errors (project deleted, permission denied)
-
-**Phase 4: Configuration & Settings (1-2 hours)**
-- Settings panel for search paths
-- Max depth configuration
-- Enable/disable auto-launch
-- Exclude patterns (e.g., `node_modules`, `.git`)
-- Cache management (clear, refresh interval)
-
-#### Technical Details
-
-**New Components:**
-- `ProjectScanner.swift` - File system scanning logic
-- `ProjectModel.swift` - Project data structure
-- `ProjectLauncherView.swift` - SwiftUI launcher modal
-- `ProjectLauncherController.swift` - State management
-- `ProjectCache.swift` - Result caching with expiration
-
-**Key Classes:**
-
-```swift
-struct Project: Identifiable, Codable {
-    let id: UUID
-    let name: String
-    let path: URL
-    let claudeMdPath: URL
-    let lastModified: Date
-    let parentPath: String
-    var gitBranch: String?
-}
-
-class ProjectScanner {
-    func scanForProjects(in paths: [URL], maxDepth: Int) async -> [Project]
-    func findCLAUDEmd(in directory: URL) -> URL?
-    func getProjectMetadata(for path: URL) -> Project?
-}
-
-class ProjectLauncherController: ObservableObject {
-    @Published var projects: [Project] = []
-    @Published var isScanning: Bool = false
-    @Published var searchText: String = ""
-
-    var filteredProjects: [Project] { /* filter + sort */ }
-    func selectProject(_ project: Project)
-    func skipLauncher()
-}
-```
-
-**Configuration Storage:**
-
-```swift
-struct ProjectLauncherSettings: Codable {
-    var searchPaths: [String] = [
-        "~/Documents/Projects",
-        "~/Code",
-        "~/Development"
-    ]
-    var maxDepth: Int = 3
-    var enableAutoLaunch: Bool = true
-    var excludePatterns: [String] = [
-        "node_modules",
-        ".git",
-        "venv",
-        "__pycache__"
-    ]
-    var cacheExpirationMinutes: Int = 5
-}
-```
-
-**Sorting Logic:**
-
-```swift
-func sortProjects(_ projects: [Project]) -> [Project] {
-    projects.sorted { p1, p2 in
-        // First, group by parent directory
-        if p1.parentPath != p2.parentPath {
-            return p1.parentPath < p2.parentPath
-        }
-        // Then, sort by modified date (newest first)
-        return p1.lastModified > p2.lastModified
-    }
-}
-```
-
-**Launch Sequence:**
-
-```swift
-func launchProject(_ project: Project) {
-    // 1. Show launching message
-    showMessage("Starting Claude in \(project.name)...")
-
-    // 2. Navigate to directory
-    terminalController.send("cd \"\(project.path.path)\"\n")
-
-    // 3. Wait for prompt (100ms delay)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-        // 4. Start Claude
-        terminalController.send("claude\n")
-    }
-}
-```
-
-**Testing Checklist:**
-- [ ] Scan finds all CLAUDE.md files in search paths
-- [ ] Max depth setting respected
-- [ ] Sorting by folder structure works correctly
-- [ ] Sorting by modified date (newest first)
-- [ ] Search/filter narrows list correctly
-- [ ] Keyboard navigation (up/down/enter)
-- [ ] Skip button bypasses launcher
-- [ ] Selected project launches Claude correctly
-- [ ] Handle project folder deleted between scan and launch
-- [ ] Handle permission denied on project folder
-- [ ] Cache prevents slow re-scans
-- [ ] Settings persist between launches
-- [ ] Git branch detection works (if in repo)
-- [ ] Very long project paths display correctly
-- [ ] Non-ASCII project names work
-- [ ] Multiple projects in same parent folder
-- [ ] Exclude patterns work (ignore node_modules, etc.)
-- [ ] Refresh button re-scans immediately
-- [ ] Last selected project remembered
+See "Future Enhancements" sections below for potential Tier 2 and Tier 3 features.
 
 ---
 
@@ -407,9 +260,7 @@ func launchProject(_ project: Project) {
 
 **Completed:**
 1. ✅ Feature 1: Drag-and-Drop File Paths (~2 hours)
-
-**Immediate (Next Sprint):**
-1. Feature 2: Project Launcher (8-10 hours)
+2. ✅ Feature 2: Project Launcher (~4 hours)
 
 **Short-term (1-2 months):**
 - Terminal split panes
@@ -431,18 +282,18 @@ func launchProject(_ project: Project) {
 ## Development Metrics
 
 **Current State:**
-- **Lines of Code:** ~8,100+ Swift
-- **Files:** 35+ Swift files
+- **Lines of Code:** ~8,800+ Swift
+- **Files:** 40+ Swift files
 - **Documentation:** 13 markdown files
-- **Development Time:** ~52+ hours
-- **Features Complete:** 7 major features ✅
+- **Development Time:** ~56+ hours
+- **Features Complete:** 8 major features ✅
 - **Test Coverage:** Manual testing (200+ test cases for radial menu)
 
 **Completed for v2.0:**
 - ✅ Drag-and-drop support (Feature 1)
+- ✅ Project launcher (Feature 2)
 
 **Target for v2.0:**
-- Project launcher (Feature 2)
 - Split panes
 - Tab support
 - 90%+ feature completeness for core terminal experience
