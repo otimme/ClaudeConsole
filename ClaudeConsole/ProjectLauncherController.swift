@@ -28,30 +28,29 @@ class ProjectLauncherController: ObservableObject {
         if let cachedProjects = cache.load(expirationMinutes: settings.cacheExpirationMinutes) {
             self.projects = cachedProjects
 
-            // Pre-select last selected project if available
-            if let lastId = settings.lastSelectedProjectId {
-                selectedProject = projects.first { $0.id == lastId }
+            // Pre-select the most recently modified project (first in filtered list)
+            if let firstProject = filteredProjects.first {
+                selectedProject = firstProject
             }
         }
     }
 
-    /// Filtered projects based on search text
+    /// Filtered projects based on search text, sorted by latest modified date
     var filteredProjects: [Project] {
+        let filtered: [Project]
+
         if searchText.isEmpty {
-            return projects
+            filtered = projects
+        } else {
+            filtered = projects.filter { project in
+                project.name.localizedCaseInsensitiveContains(searchText) ||
+                project.path.path.localizedCaseInsensitiveContains(searchText) ||
+                project.parentPath.localizedCaseInsensitiveContains(searchText)
+            }
         }
 
-        return projects.filter { project in
-            project.name.localizedCaseInsensitiveContains(searchText) ||
-            project.path.path.localizedCaseInsensitiveContains(searchText) ||
-            project.parentPath.localizedCaseInsensitiveContains(searchText)
-        }
-    }
-
-    /// Grouped projects by parent directory
-    var groupedProjects: [(String, [Project])] {
-        let grouped = Dictionary(grouping: filteredProjects) { $0.parentPath }
-        return grouped.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        // Sort by modified date, newest first
+        return filtered.sorted { $0.lastModified > $1.lastModified }
     }
 
     /// Scans for projects (or loads from cache)
@@ -64,9 +63,9 @@ class ProjectLauncherController: ObservableObject {
         // Save to cache
         cache.save(projects: scannedProjects)
 
-        // Pre-select last selected project if available
-        if let lastId = settings.lastSelectedProjectId {
-            selectedProject = projects.first { $0.id == lastId }
+        // Pre-select the most recently modified project (first in filtered list)
+        if let firstProject = filteredProjects.first {
+            selectedProject = firstProject
         }
 
         isScanning = false

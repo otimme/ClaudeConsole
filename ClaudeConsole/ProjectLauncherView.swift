@@ -85,26 +85,18 @@ struct ProjectLauncherView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(controller.groupedProjects, id: \.0) { parentPath, projects in
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Parent directory header
-                                Text(parentPath)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal)
-
-                                // Projects in this directory
-                                ForEach(projects) { project in
-                                    ProjectRow(
-                                        project: project,
-                                        isSelected: controller.selectedProject?.id == project.id
-                                    )
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        controller.selectProject(project)
-                                    }
-                                }
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(controller.filteredProjects) { project in
+                            ProjectRow(
+                                project: project,
+                                isSelected: controller.selectedProject?.id == project.id
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                // Clicking a project launches it immediately
+                                controller.selectProject(project)
+                                onProjectSelected(project)
+                                dismiss()
                             }
                         }
                     }
@@ -130,16 +122,7 @@ struct ProjectLauncherView: View {
                     onSkip()
                     dismiss()
                 }
-
-                Button("Open Project") {
-                    if let project = controller.selectedProject {
-                        onProjectSelected(project)
-                        dismiss()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(controller.selectedProject == nil)
-                .keyboardShortcut(.return, modifiers: [])
+                .keyboardShortcut(.escape, modifiers: [])
             }
             .padding()
         }
@@ -151,6 +134,16 @@ struct ProjectLauncherView: View {
         }
         .sheet(isPresented: $showSettings) {
             ProjectSettingsView(settings: $controller.settings)
+        }
+        .onKeyPress(.return) {
+            // Enter key launches selected project
+            if let project = controller.selectedProject {
+                controller.selectProject(project)
+                onProjectSelected(project)
+                dismiss()
+                return .handled
+            }
+            return .ignored
         }
     }
 }

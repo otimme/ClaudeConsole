@@ -33,13 +33,8 @@ class ProjectScanner {
             allProjects.append(contentsOf: projects)
         }
 
-        // Sort by parent path, then by modified date (newest first)
-        return allProjects.sorted { p1, p2 in
-            if p1.parentPath != p2.parentPath {
-                return p1.parentPath < p2.parentPath
-            }
-            return p1.lastModified > p2.lastModified
-        }
+        // Sort by modified date only (newest first)
+        return allProjects.sorted { $0.lastModified > $1.lastModified }
     }
 
     /// Recursively scans a directory for CLAUDE.md files
