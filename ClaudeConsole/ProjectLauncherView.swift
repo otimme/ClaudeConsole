@@ -6,11 +6,17 @@
 //
 
 import SwiftUI
+import GameController
+import Combine
 
 struct ProjectLauncherView: View {
     @StateObject private var controller = ProjectLauncherController()
     @Environment(\.dismiss) private var dismiss
     @State private var showSettings = false
+    @StateObject private var ps4Monitor = PS4ControllerMonitor()
+    @State private var lastAnalogValue: Float = 0
+    @State private var canNavigate = true
+    @State private var cancellables = Set<AnyCancellable>()
 
     let onProjectSelected: (Project) -> Void
     let onSkip: () -> Void
@@ -144,6 +150,97 @@ struct ProjectLauncherView: View {
                 return .handled
             }
             return .ignored
+        }
+        .onAppear {
+            setupPS4Controller()
+        }
+    }
+
+    // MARK: - PS4 Controller Support
+
+    private func setupPS4Controller() {
+        // Handle R2 trigger (launch project)
+        ps4Monitor.onButtonPressed = { button in
+            if button == .r2 {
+                launchSelectedProject()
+            }
+        }
+
+        // Observe left analog stick Y-axis for up/down navigation
+        ps4Monitor.$leftStickY
+            .removeDuplicates()
+            .sink { [self] yValue in
+                handleAnalogNavigation(yValue: yValue)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleAnalogNavigation(yValue: Float) {
+        let deadzone: Float = 0.3
+
+        // Debounce navigation to prevent too-rapid scrolling
+        guard canNavigate else { return }
+
+        // Check if stick moved past deadzone
+        if abs(yValue) > deadzone {
+            // Determine direction (negative Y = up, positive Y = down)
+            if yValue < -deadzone && lastAnalogValue >= -deadzone {
+                // Moving up
+                navigateUp()
+                canNavigate = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    canNavigate = true
+                }
+            } else if yValue > deadzone && lastAnalogValue <= deadzone {
+                // Moving down
+                navigateDown()
+                canNavigate = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    canNavigate = true
+                }
+            }
+        }
+
+        lastAnalogValue = yValue
+    }
+
+    private func navigateUp() {
+        let projects = controller.filteredProjects
+        guard !projects.isEmpty else { return }
+
+        if let currentProject = controller.selectedProject,
+           let currentIndex = projects.firstIndex(where: { $0.id == currentProject.id }) {
+            // Move to previous project
+            if currentIndex > 0 {
+                controller.selectedProject = projects[currentIndex - 1]
+            }
+        } else {
+            // No selection, select first
+            controller.selectedProject = projects.first
+        }
+    }
+
+    private func navigateDown() {
+        let projects = controller.filteredProjects
+        guard !projects.isEmpty else { return }
+
+        if let currentProject = controller.selectedProject,
+           let currentIndex = projects.firstIndex(where: { $0.id == currentProject.id }) {
+            // Move to next project
+            if currentIndex < projects.count - 1 {
+                controller.selectedProject = projects[currentIndex + 1]
+            }
+        } else {
+            // No selection, select first
+            controller.selectedProject = projects.first
+        }
+    }
+
+    private func launchSelectedProject() {
+        if let project = controller.selectedProject {
+            controller.selectProject(project)
+            onProjectSelected(project)
+            dismiss()
         }
     }
 }
