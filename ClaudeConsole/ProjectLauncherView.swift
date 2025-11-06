@@ -183,17 +183,18 @@ struct ProjectLauncherView: View {
 
         // Check if stick moved past deadzone
         if abs(yValue) > deadzone {
-            // Determine direction (negative Y = up, positive Y = down)
+            // Determine direction (negative Y = down in list, positive Y = up in list)
+            // Inverted to match natural stick movement
             if yValue < -deadzone && lastAnalogValue >= -deadzone {
-                // Moving up
-                navigateUp()
+                // Stick pushed down -> navigate down
+                navigateDown()
                 canNavigate = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     canNavigate = true
                 }
             } else if yValue > deadzone && lastAnalogValue <= deadzone {
-                // Moving down
-                navigateDown()
+                // Stick pushed up -> navigate up
+                navigateUp()
                 canNavigate = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     canNavigate = true
