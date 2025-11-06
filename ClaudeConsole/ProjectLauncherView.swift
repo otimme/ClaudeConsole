@@ -13,10 +13,11 @@ struct ProjectLauncherView: View {
     @StateObject private var controller = ProjectLauncherController()
     @Environment(\.dismiss) private var dismiss
     @State private var showSettings = false
-    @StateObject private var ps4Monitor = PS4ControllerMonitor()
+    @ObservedObject var ps4Monitor: PS4ControllerMonitor
     @State private var lastAnalogValue: Float = 0
     @State private var canNavigate = true
     @State private var cancellables = Set<AnyCancellable>()
+    @State private var originalButtonHandler: ((PS4Button) -> Void)?
 
     let onProjectSelected: (Project) -> Void
     let onSkip: () -> Void
@@ -162,10 +163,16 @@ struct ProjectLauncherView: View {
     // MARK: - PS4 Controller Support
 
     private func setupPS4Controller() {
-        // Handle R2 trigger (launch project)
-        ps4Monitor.onButtonPressed = { button in
+        // Save the original button handler
+        originalButtonHandler = ps4Monitor.onButtonPressed
+
+        // Temporarily override with launcher-specific behavior
+        ps4Monitor.onButtonPressed = { [originalButtonHandler] button in
             if button == .r2 {
                 launchSelectedProject()
+            } else {
+                // Pass through other buttons to original handler
+                originalButtonHandler?(button)
             }
         }
 
@@ -179,9 +186,8 @@ struct ProjectLauncherView: View {
     }
 
     private func cleanupPS4Controller() {
-        // Clear the button press handler to prevent interference with main app
-        ps4Monitor.onButtonPressed = nil
-        ps4Monitor.onButtonReleased = nil
+        // Restore the original button press handler
+        ps4Monitor.onButtonPressed = originalButtonHandler
 
         // Cancel all subscriptions
         cancellables.removeAll()

@@ -246,6 +246,7 @@ struct ContentView: View {
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
         .sheet(isPresented: $showProjectLauncher) {
             ProjectLauncherView(
+                ps4Monitor: ps4Controller.monitor,
                 onProjectSelected: { project in
                     selectedProject = project
                     launchProject(project)
