@@ -128,6 +128,15 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
         if let data = formattedPaths.data(using: .utf8) {
             send(data: ArraySlice(data))
+
+            // Restore focus to terminal window and make it first responder
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                NSApp.activate(ignoringOtherApps: true)
+                self.window?.makeKeyAndOrderFront(nil)
+                self.window?.makeFirstResponder(self)
+            }
+
             return true
         }
 
@@ -139,37 +148,30 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     private func formatPathForTerminal(_ url: URL) -> String {
         var path = url.path
 
-        // Expand ~ for home directory if needed
-        if path.hasPrefix(NSHomeDirectory()) {
+        // Check if this is under home directory
+        let useTilde = path.hasPrefix(NSHomeDirectory())
+        if useTilde {
             path = "~" + path.dropFirst(NSHomeDirectory().count)
         }
 
-        // Check if path needs quoting (contains spaces or special characters)
-        let needsQuoting = path.contains(" ") ||
-                          path.contains("(") ||
-                          path.contains(")") ||
-                          path.contains("&") ||
-                          path.contains(";") ||
-                          path.contains("|") ||
-                          path.contains("<") ||
-                          path.contains(">") ||
-                          path.contains("$") ||
-                          path.contains("`") ||
-                          path.contains("\"") ||
-                          path.contains("'") ||
-                          path.contains("*") ||
-                          path.contains("?") ||
-                          path.contains("[") ||
-                          path.contains("]")
+        // Escape special characters with backslashes (like Terminal.app does)
+        // Characters that need escaping in bash
+        let specialChars = [" ", "(", ")", "&", ";", "|", "<", ">", "$", "`", "\"", "'", "*", "?", "[", "]", "!", "#", "{", "}", "\\"]
 
-        if needsQuoting {
-            // Escape any single quotes in the path
-            path = path.replacingOccurrences(of: "'", with: "'\\''")
-            // Wrap in single quotes
-            return "'\(path)'"
+        var escapedPath = ""
+        for (index, char) in path.enumerated() {
+            let charString = String(char)
+            // Don't escape the leading ~ for home directory
+            if charString == "~" && index == 0 && useTilde {
+                escapedPath += charString
+            } else if specialChars.contains(charString) {
+                escapedPath += "\\" + charString
+            } else {
+                escapedPath += charString
+            }
         }
 
-        return path
+        return escapedPath
     }
 
     private func setupEventMonitor() {
