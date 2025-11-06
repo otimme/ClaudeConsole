@@ -20,6 +20,11 @@ struct ContentView: View {
     @State private var useCompactStatusBar = false
     @AppStorage("showPS4StatusBar") private var showPS4StatusBar = true
 
+    // Project Launcher
+    @State private var showProjectLauncher = false
+    @State private var selectedProject: Project?
+    @State private var hasLaunchedProject = false
+
     // CRITICAL FIX: Thread-safe subscription management
     // Using @State with Set<AnyCancellable> directly causes race conditions and crashes
     // because @State is not thread-safe for reference types.
@@ -239,7 +244,26 @@ struct ContentView: View {
             .background(Color(NSColor.controlBackgroundColor))
         }
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
+        .sheet(isPresented: $showProjectLauncher) {
+            ProjectLauncherView(
+                onProjectSelected: { project in
+                    selectedProject = project
+                    launchProject(project)
+                },
+                onSkip: {
+                    selectedProject = nil
+                }
+            )
+        }
         .onAppear {
+            // Show project launcher on first launch if enabled
+            let settings = ProjectLauncherSettings.load()
+            if settings.enableAutoLaunch && !hasLaunchedProject {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showProjectLauncher = true
+                }
+            }
+
             // CRITICAL FIX: Prevent duplicate subscriptions on multiple onAppear calls
             // onAppear can fire multiple times (view recreation, navigation), so we guard
             // against creating duplicate Combine subscriptions which cause memory leaks.
@@ -284,6 +308,35 @@ struct ContentView: View {
 
     var batteryTooltip: String {
         return ps4Controller.monitor.connectionStatusDescription
+    }
+
+    // MARK: - Project Launcher
+
+    private func launchProject(_ project: Project) {
+        hasLaunchedProject = true
+
+        // Wait for terminal to be ready
+        guard let terminal = terminalController else {
+            // Terminal not ready yet, schedule retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.launchProject(project)
+            }
+            return
+        }
+
+        // Navigate to project directory
+        let cdCommand = "cd \"\(project.path.path)\"\n"
+        if let data = cdCommand.data(using: .utf8) {
+            terminal.send(data: ArraySlice(data))
+        }
+
+        // Wait for cd to complete, then launch claude
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let claudeCommand = "claude\n"
+            if let data = claudeCommand.data(using: .utf8) {
+                terminal.send(data: ArraySlice(data))
+            }
+        }
     }
 }
 
