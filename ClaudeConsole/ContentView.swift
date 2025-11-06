@@ -23,9 +23,35 @@ struct ContentView: View {
     // CRITICAL FIX: Thread-safe subscription management
     // Using @State with Set<AnyCancellable> directly causes race conditions and crashes
     // because @State is not thread-safe for reference types.
-    // This helper class wraps the cancellables in a reference type that @State can safely hold.
+    // This helper class wraps the cancellables with proper thread synchronization.
     private class SubscriptionManager {
-        var cancellables = Set<AnyCancellable>()
+        private let lock = NSLock()
+        private var _cancellables = Set<AnyCancellable>()
+
+        var cancellables: Set<AnyCancellable> {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _cancellables
+            }
+            set {
+                lock.lock()
+                defer { lock.unlock() }
+                _cancellables = newValue
+            }
+        }
+
+        func insert(_ cancellable: AnyCancellable) {
+            lock.lock()
+            defer { lock.unlock() }
+            _cancellables.insert(cancellable)
+        }
+
+        func removeAll() {
+            lock.lock()
+            defer { lock.unlock() }
+            _cancellables.removeAll()
+        }
     }
     @State private var subscriptionManager = SubscriptionManager()
 

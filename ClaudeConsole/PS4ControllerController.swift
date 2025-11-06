@@ -29,6 +29,7 @@ class PS4ControllerController: ObservableObject {
     private weak var terminalController: LocalProcessTerminalView?
     private var cancellables = Set<AnyCancellable>()
     private var terminalControllerObserver: NSObjectProtocol?
+    private var transcriptionCancellable: AnyCancellable?  // Separate cancellable to prevent accumulation
 
     // CRITICAL FIX: Push-to-talk state machine implementation
     // Previous implementation used simple `pushToTalkButton: PS4Button?` which had edge cases:
@@ -295,15 +296,18 @@ class PS4ControllerController: ObservableObject {
 
         // FIX: Monitor transcription completion via Combine
         // When transcription finishes, automatically return to idle state
+        // Cancel any existing subscription first to prevent accumulation
+        transcriptionCancellable?.cancel()
+
         if let speech = appCommandExecutor.speechController {
-            speech.$isTranscribing
+            transcriptionCancellable = speech.$isTranscribing
                 .receive(on: DispatchQueue.main)
                 .filter { !$0 } // Wait for transcription to finish
                 .prefix(1) // Only take the first completion
                 .sink { [weak self] _ in
                     self?.pushToTalkState = .idle
+                    self?.transcriptionCancellable = nil  // Clean up after use
                 }
-                .store(in: &cancellables)
         }
     }
 
@@ -320,6 +324,10 @@ class PS4ControllerController: ObservableObject {
             }
         }
         pushToTalkState = .idle
+
+        // Clean up any pending transcription subscription
+        transcriptionCancellable?.cancel()
+        transcriptionCancellable = nil
     }
 
     // Execute different types of button actions

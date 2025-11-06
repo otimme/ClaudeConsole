@@ -15,9 +15,30 @@ extension Notification.Name {
 
 // Custom terminal view that monitors output for claude command
 class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
-    private var outputBuffer = ""
+    // Constants for buffer limits
+    private static let maxOutputBufferSize = 2000  // Max chars for output buffer
+    private static let maxPWDBufferSize = 5000     // Max chars for PWD buffer
+
+    private var outputBuffer = "" {
+        didSet {
+            // Automatically trim buffer if it exceeds limit
+            if outputBuffer.count > Self.maxOutputBufferSize {
+                outputBuffer = String(outputBuffer.suffix(Self.maxOutputBufferSize))
+            }
+        }
+    }
+
     private var isPWDCapture = false
-    private var pwdBuffer = ""
+    private var pwdBuffer = "" {
+        didSet {
+            // Automatically trim buffer if it exceeds limit
+            if pwdBuffer.count > Self.maxPWDBufferSize {
+                // If PWD capture buffer gets too large, abort capture
+                isPWDCapture = false
+                pwdBuffer = ""
+            }
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -81,11 +102,7 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
                 pwdBuffer = ""
             }
 
-            // Keep buffer size limited while capturing
-            if pwdBuffer.count > 5000 {
-                isPWDCapture = false
-                pwdBuffer = ""
-            }
+            // Buffer size is automatically limited by didSet
             return
         }
 
@@ -133,12 +150,8 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
                 // Clear buffer to avoid re-detecting
                 outputBuffer = ""
-            } else {
-                // Keep buffer limited
-                if outputBuffer.count > 2000 {
-                    outputBuffer = String(outputBuffer.suffix(2000))
-                }
             }
+            // Buffer size is automatically limited by didSet
         }
     }
 

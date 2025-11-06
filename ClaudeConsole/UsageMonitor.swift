@@ -39,7 +39,11 @@ class UsageMonitor: ObservableObject {
     private var masterFD: Int32 = -1
     private var childPID: pid_t = -1
     private var outputSource: DispatchSourceRead?
-    private var outputBuffer = ""
+    private var processMonitorSource: DispatchSourceProcess?
+
+    // IMPORTANT: Only access outputBuffer from bufferQueue to prevent race conditions
+    private var outputBuffer: String = ""
+
     private var pollTimer: Timer?
     private var attemptCount = 0
     private let maxAttempts = 3
@@ -82,9 +86,24 @@ class UsageMonitor: ObservableObject {
 
         do {
             try task.run()
-            task.waitUntilExit()
 
-            if task.terminationStatus == 0 {
+            // Add timeout for waitUntilExit
+            let timeoutSeconds = 5.0
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            var timedOut = false
+
+            while task.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+
+            if task.isRunning {
+                // Timeout occurred
+                task.terminate()
+                timedOut = true
+                print("UsageMonitor: Timeout finding claude executable")
+            }
+
+            if !timedOut && task.terminationStatus == 0 {
                 let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
                 if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !path.isEmpty,
@@ -114,6 +133,18 @@ class UsageMonitor: ObservableObject {
     private func startBackgroundSession() {
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
+        var shouldCloseMasterFD = true // Track if we should close masterFD
+
+        // Use defer to ensure slaveFD is always closed (parent process doesn't need it)
+        defer {
+            if slaveFD >= 0 {
+                close(slaveFD)
+            }
+            // Only close masterFD if we're not using it
+            if shouldCloseMasterFD && masterFD >= 0 {
+                close(masterFD)
+            }
+        }
 
         guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
             // print("UsageMonitor: Failed to create PTY")
@@ -132,8 +163,6 @@ class UsageMonitor: ObservableObject {
 
         guard let claudePath = self.claudePath else {
             // print("UsageMonitor: Claude path not available")
-            close(masterFD)
-            close(slaveFD)
             return
         }
 
@@ -144,8 +173,6 @@ class UsageMonitor: ObservableObject {
 
         guard FileManager.default.fileExists(atPath: nodePath) else {
             // print("UsageMonitor: Node not found at \(nodePath)")
-            close(masterFD)
-            close(slaveFD)
             return
         }
 
@@ -170,14 +197,32 @@ class UsageMonitor: ObservableObject {
         var pathEnv = "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
         do {
             try pathTask.run()
-            pathTask.waitUntilExit()
-            if let pathData = try? pathPipe.fileHandleForReading.readToEnd(),
-               let path = String(data: pathData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !path.isEmpty {
-                pathEnv = "PATH=\(path)"
-                // print("UsageMonitor: Using PATH: \(path)")
-            } else {
-                // print("UsageMonitor: Failed to get PATH, using default")
+
+            // Add timeout for waitUntilExit
+            let timeoutSeconds = 5.0
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            var timedOut = false
+
+            while pathTask.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+
+            if pathTask.isRunning {
+                // Timeout occurred
+                pathTask.terminate()
+                timedOut = true
+                print("UsageMonitor: Timeout getting PATH, using default")
+            }
+
+            if !timedOut {
+                if let pathData = try? pathPipe.fileHandleForReading.readToEnd(),
+                   let path = String(data: pathData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !path.isEmpty {
+                    pathEnv = "PATH=\(path)"
+                    // print("UsageMonitor: Using PATH: \(path)")
+                } else {
+                    // print("UsageMonitor: Failed to get PATH, using default")
+                }
             }
         } catch {
             // print("UsageMonitor: Failed to get PATH: \(error)")
@@ -200,12 +245,15 @@ class UsageMonitor: ObservableObject {
         for envVar in env { free(envVar) }
 
         if result == 0 {
-            // Parent process
-            close(slaveFD)
+            // Parent process - success
             self.childPID = pid
+
+            // We're keeping masterFD open for reading
+            shouldCloseMasterFD = false
 
             fcntl(masterFD, F_SETFL, O_NONBLOCK)
             startReading()
+            monitorChildProcess()  // Monitor for process termination
 
             // Give Claude time to start, then send first /usage command
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -213,8 +261,65 @@ class UsageMonitor: ObservableObject {
             }
         } else {
             // print("UsageMonitor: posix_spawn failed with error: \(result)")
-            close(masterFD)
-            close(slaveFD)
+            // Defer block will clean up both FDs
+        }
+    }
+
+    private func monitorChildProcess() {
+        guard childPID > 0 else { return }
+
+        let source = DispatchSource.makeProcessSource(
+            identifier: childPID,
+            eventMask: .exit,
+            queue: .global()
+        )
+
+        source.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            print("UsageMonitor: Claude process terminated unexpectedly")
+            self.handleProcessTermination()
+        }
+
+        source.resume()
+        processMonitorSource = source
+    }
+
+    private func handleProcessTermination() {
+        // Clean up resources
+        outputSource?.cancel()
+        outputSource = nil
+        processMonitorSource?.cancel()
+        processMonitorSource = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
+
+        // Reset state
+        childPID = -1
+        masterFD = -1
+
+        // Clear buffer safely on the serial queue
+        bufferQueue.async {
+            self.outputBuffer = ""
+        }
+
+        // Clear usage data to indicate monitoring stopped
+        DispatchQueue.main.async {
+            self.usageStats = UsageStats()
+        }
+
+        // Optionally: attempt restart after a delay
+        DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self = self else { return }
+            print("UsageMonitor: Attempting to restart monitoring...")
+            if self.claudePath != nil {
+                self.startBackgroundSession()
+
+                // Restart polling
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self.requestUsageUpdate()
+                    self.startPolling()
+                }
+            }
         }
     }
 
@@ -398,6 +503,7 @@ class UsageMonitor: ObservableObject {
     deinit {
         pollTimer?.invalidate()
         outputSource?.cancel()
+        processMonitorSource?.cancel()
         if childPID > 0 {
             kill(childPID, SIGTERM)
         }
