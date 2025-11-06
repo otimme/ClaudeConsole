@@ -8,6 +8,13 @@
 import Foundation
 import Combine
 
+enum UsageFetchStatus {
+    case idle
+    case fetching
+    case success
+    case failed
+}
+
 struct UsageStats: Codable {
     var currentSessionTokens: Int = 0
     var dailyTokensUsed: Int = 0
@@ -35,6 +42,7 @@ struct UsageStats: Codable {
 
 class UsageMonitor: ObservableObject {
     @Published var usageStats = UsageStats()
+    @Published var fetchStatus: UsageFetchStatus = .idle
 
     private var masterFD: Int32 = -1
     private var childPID: pid_t = -1
@@ -47,6 +55,7 @@ class UsageMonitor: ObservableObject {
     private var pollTimer: Timer?
     private var attemptCount = 0
     private let maxAttempts = 3
+    private var parseTimer: DispatchWorkItem?
 
     private var claudePath: String?
 
@@ -63,12 +72,6 @@ class UsageMonitor: ObservableObject {
 
             if self.claudePath != nil {
                 self.startBackgroundSession()
-
-                // Start polling: first fetch after 3 seconds, then every 60 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    self.requestUsageUpdate()
-                    self.startPolling()
-                }
             }
         }
     }
@@ -109,7 +112,7 @@ class UsageMonitor: ObservableObject {
                    !path.isEmpty,
                    !path.contains("not found") {
                     self.claudePath = path
-                    // print("UsageMonitor: Found claude at \(path)")
+                    print("UsageMonitor: Found claude at \(path)")
                     return
                 }
             }
@@ -126,7 +129,7 @@ class UsageMonitor: ObservableObject {
                 }
             }
         } catch {
-            // print("UsageMonitor: Failed to find claude: \(error)")
+            print("UsageMonitor: Failed to find claude: \(error)")
         }
     }
 
@@ -147,7 +150,7 @@ class UsageMonitor: ObservableObject {
         }
 
         guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
-            // print("UsageMonitor: Failed to create PTY")
+            print("UsageMonitor: Failed to create PTY")
             return
         }
 
@@ -162,7 +165,7 @@ class UsageMonitor: ObservableObject {
         posix_spawn_file_actions_addclose(&fileActions, slaveFD)
 
         guard let claudePath = self.claudePath else {
-            // print("UsageMonitor: Claude path not available")
+            print("UsageMonitor: Claude path not available")
             return
         }
 
@@ -172,11 +175,11 @@ class UsageMonitor: ObservableObject {
         let nodePath = nodeURL.path
 
         guard FileManager.default.fileExists(atPath: nodePath) else {
-            // print("UsageMonitor: Node not found at \(nodePath)")
+            print("UsageMonitor: Node not found at \(nodePath)")
             return
         }
 
-        // print("UsageMonitor: Using node at \(nodePath)")
+        print("UsageMonitor: Using node at \(nodePath)")
 
         var pid: pid_t = 0
 
@@ -235,7 +238,7 @@ class UsageMonitor: ObservableObject {
             nil
         ]
 
-        // print("UsageMonitor: Spawning node with claude script")
+        print("UsageMonitor: Spawning node with claude script")
 
         let result = posix_spawn(&pid, nodePath, &fileActions, nil, args, env)
 
@@ -256,11 +259,13 @@ class UsageMonitor: ObservableObject {
             monitorChildProcess()  // Monitor for process termination
 
             // Give Claude time to start, then send first /usage command
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            // Increased wait time to ensure Claude is fully initialized
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 self.requestUsageUpdate()
+                self.startPolling()
             }
         } else {
-            // print("UsageMonitor: posix_spawn failed with error: \(result)")
+            print("UsageMonitor: posix_spawn failed with error: \(result)")
             // Defer block will clean up both FDs
         }
     }
@@ -315,7 +320,7 @@ class UsageMonitor: ObservableObject {
                 self.startBackgroundSession()
 
                 // Restart polling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                     self.requestUsageUpdate()
                     self.startPolling()
                 }
@@ -335,10 +340,23 @@ class UsageMonitor: ObservableObject {
             if bytesRead > 0 {
                 let data = Data(buffer[0..<bytesRead])
                 if let text = String(data: data, encoding: .utf8) {
+                    print("UsageMonitor: Received \(bytesRead) bytes: [\(text)]")
                     // Update buffer on serial queue to prevent data races
                     self.bufferQueue.async {
                         self.outputBuffer += text
-                        self.parseUsageOutput()
+
+                        // Cancel any pending parse timer
+                        self.parseTimer?.cancel()
+
+                        // Schedule parse after output settles (8 second delay to allow Settings panel API to load)
+                        let workItem = DispatchWorkItem { [weak self] in
+                            guard let self = self else { return }
+                            self.bufferQueue.async {
+                                self.parseUsageOutput()
+                            }
+                        }
+                        self.parseTimer = workItem
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 8.0, execute: workItem)
                     }
                 }
             }
@@ -355,49 +373,74 @@ class UsageMonitor: ObservableObject {
 
     private func requestUsageUpdate() {
         guard masterFD >= 0 else {
-            // print("UsageMonitor: masterFD is invalid")
+            print("UsageMonitor: masterFD is invalid")
+            DispatchQueue.main.async {
+                self.fetchStatus = .failed
+            }
             return
         }
 
         guard attemptCount < maxAttempts else {
-            // print("UsageMonitor: Max attempts reached")
+            print("UsageMonitor: Max attempts reached")
+            DispatchQueue.main.async {
+                self.fetchStatus = .failed
+            }
             return
         }
 
+        // Update status to fetching on first attempt
+        if attemptCount == 0 {
+            DispatchQueue.main.async {
+                self.fetchStatus = .fetching
+            }
+            // Clear buffer before starting new fetch cycle
+            bufferQueue.async {
+                print("UsageMonitor: Clearing buffer before fetch")
+                self.outputBuffer = ""
+            }
+        }
+
         attemptCount += 1
-        // print("UsageMonitor: Sending /usage command (attempt \(attemptCount)/\(maxAttempts))")
+        print("UsageMonitor: Sending /usage command (attempt \(attemptCount)/\(maxAttempts))")
 
-        // First, send Escape to clear any existing input
-        if let escData = "\u{1B}".data(using: .utf8) {
-            _ = escData.withUnsafeBytes { ptr in
-                write(masterFD, ptr.baseAddress, escData.count)
+        // Only send /usage command on first attempt
+        // On subsequent attempts, just wait for the panel to finish loading
+        if attemptCount == 1 {
+            // First, send Escape to clear any existing input
+            if let escData = "\u{1B}".data(using: .utf8) {
+                _ = escData.withUnsafeBytes { ptr in
+                    write(masterFD, ptr.baseAddress, escData.count)
+                }
             }
-        }
 
-        usleep(100000) // 100ms delay
+            usleep(100000) // 100ms delay
 
-        // Type: /usage + space
-        let command = "/usage "
-        if let data = command.data(using: .utf8) {
-            _ = data.withUnsafeBytes { ptr in
-                write(masterFD, ptr.baseAddress, data.count)
+            // Type: /usage + space
+            let command = "/usage "
+            if let data = command.data(using: .utf8) {
+                _ = data.withUnsafeBytes { ptr in
+                    write(masterFD, ptr.baseAddress, data.count)
+                }
             }
-        }
 
-        usleep(200000) // 200ms delay to let autocomplete settle
+            usleep(200000) // 200ms delay to let autocomplete settle
 
-        // Send Enter key
-        if let enterData = "\r".data(using: .utf8) {
-            _ = enterData.withUnsafeBytes { ptr in
-                write(masterFD, ptr.baseAddress, enterData.count)
+            // Send Enter key
+            if let enterData = "\r".data(using: .utf8) {
+                _ = enterData.withUnsafeBytes { ptr in
+                    write(masterFD, ptr.baseAddress, enterData.count)
+                }
             }
-        }
 
-        // print("UsageMonitor: Sent '/usage ' + Enter")
+            print("UsageMonitor: Sent '/usage ' + Enter")
+        } else {
+            print("UsageMonitor: Waiting for panel to load (not sending command again)")
+        }
 
         // Schedule next attempt if we haven't reached max
+        // Wait longer between attempts to give API time to respond
         if attemptCount < maxAttempts {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) { [weak self] in
                 self?.requestUsageUpdate()
             }
         }
@@ -486,17 +529,33 @@ class UsageMonitor: ObservableObject {
 
         // Only update if we found valid data
         if newStats.dailyTokensUsed > 0 || newStats.weeklyTokensUsed > 0 {
-            // print("UsageMonitor: Parsed stats - Daily: \(newStats.dailyTokensUsed)%, Weekly: \(newStats.weeklyTokensUsed)%")
+            print("UsageMonitor: Parsed stats - Daily: \(newStats.dailyTokensUsed)%, Weekly: \(newStats.weeklyTokensUsed)%")
             DispatchQueue.main.async {
                 self.usageStats = newStats
+                self.fetchStatus = .success
             }
         } else {
-            // print("UsageMonitor: No valid stats found in buffer")
+            print("UsageMonitor: No valid stats found in buffer")
+            print("UsageMonitor: Buffer contents: [\(cleanBuffer)]")
+            print("UsageMonitor: Buffer length: \(cleanBuffer.count) chars")
+
+            // Print first few lines for debugging
+            let lines = cleanBuffer.components(separatedBy: "\n")
+            print("UsageMonitor: Total lines: \(lines.count)")
+            for (index, line) in lines.prefix(20).enumerated() {
+                print("UsageMonitor: Line \(index): [\(line)]")
+            }
+            // Only set failed if we've reached max attempts
+            if self.attemptCount >= self.maxAttempts {
+                DispatchQueue.main.async {
+                    self.fetchStatus = .failed
+                }
+            }
         }
 
-        // Keep only recent output in buffer (last 5000 chars)
-        if outputBuffer.count > 5000 {
-            outputBuffer = String(outputBuffer.suffix(5000))
+        // Keep only recent output in buffer (last 20000 chars to capture full Settings panel)
+        if outputBuffer.count > 20000 {
+            outputBuffer = String(outputBuffer.suffix(20000))
         }
     }
 

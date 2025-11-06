@@ -12,6 +12,12 @@ struct RealUsageStatsView: View {
 
     var body: some View {
         HStack(spacing: 30) {
+            // Status Indicator
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+                .padding(.leading, 4)
+
             // Current Session (Daily)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -92,6 +98,19 @@ struct RealUsageStatsView: View {
             return .orange
         } else {
             return .green
+        }
+    }
+
+    private var statusColor: Color {
+        switch usageMonitor.fetchStatus {
+        case .idle:
+            return .gray
+        case .fetching:
+            return .green
+        case .success:
+            return .green
+        case .failed:
+            return .red
         }
     }
 }
