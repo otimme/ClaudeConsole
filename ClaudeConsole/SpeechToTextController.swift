@@ -127,6 +127,12 @@ class SpeechToTextController: ObservableObject {
             return
         }
 
+        // Filter out Whisper placeholder strings
+        let trimmedText = text.trimmingCharacters(in: .whitespaces)
+        if trimmedText == "[INAUDIBLE]" || trimmedText == "[BLANK_AUDIO]" {
+            return
+        }
+
         if let data = text.data(using: .utf8) {
             terminal.send(data: ArraySlice(data))
         }
