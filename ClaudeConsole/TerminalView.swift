@@ -62,6 +62,7 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
                 self?.window?.makeFirstResponder(self)
             }
             setupEventMonitor()
+            setupDragAndDrop()
         } else {
             removeEventMonitor()
         }
@@ -69,6 +70,106 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
     deinit {
         removeEventMonitor()
+    }
+
+    // MARK: - Drag and Drop Support
+
+    private var isDraggingOver = false
+    private lazy var dropOverlay: NSView = {
+        let overlay = NSView(frame: bounds)
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.1).cgColor
+        overlay.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+        overlay.layer?.borderWidth = 3
+        overlay.layer?.cornerRadius = 4
+        overlay.isHidden = true
+        return overlay
+    }()
+
+    private func setupDragAndDrop() {
+        // Register for file URL drops
+        registerForDraggedTypes([.fileURL])
+
+        // Add drop overlay
+        addSubview(dropOverlay)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        // Check if pasteboard contains file URLs
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: nil) else {
+            return []
+        }
+
+        isDraggingOver = true
+        dropOverlay.frame = bounds
+        dropOverlay.isHidden = false
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isDraggingOver = false
+        dropOverlay.isHidden = true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        isDraggingOver = false
+        dropOverlay.isHidden = true
+
+        // Extract file URLs from pasteboard
+        guard let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: nil
+        ) as? [URL] else {
+            return false
+        }
+
+        // Format and insert paths
+        let formattedPaths = urls.map { formatPathForTerminal($0) }.joined(separator: " ")
+
+        if let data = formattedPaths.data(using: .utf8) {
+            send(data: ArraySlice(data))
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Path Formatting
+
+    private func formatPathForTerminal(_ url: URL) -> String {
+        var path = url.path
+
+        // Expand ~ for home directory if needed
+        if path.hasPrefix(NSHomeDirectory()) {
+            path = "~" + path.dropFirst(NSHomeDirectory().count)
+        }
+
+        // Check if path needs quoting (contains spaces or special characters)
+        let needsQuoting = path.contains(" ") ||
+                          path.contains("(") ||
+                          path.contains(")") ||
+                          path.contains("&") ||
+                          path.contains(";") ||
+                          path.contains("|") ||
+                          path.contains("<") ||
+                          path.contains(">") ||
+                          path.contains("$") ||
+                          path.contains("`") ||
+                          path.contains("\"") ||
+                          path.contains("'") ||
+                          path.contains("*") ||
+                          path.contains("?") ||
+                          path.contains("[") ||
+                          path.contains("]")
+
+        if needsQuoting {
+            // Escape any single quotes in the path
+            path = path.replacingOccurrences(of: "'", with: "'\\''")
+            // Wrap in single quotes
+            return "'\(path)'"
+        }
+
+        return path
     }
 
     private func setupEventMonitor() {
