@@ -154,6 +154,9 @@ struct ProjectLauncherView: View {
         .onAppear {
             setupPS4Controller()
         }
+        .onDisappear {
+            cleanupPS4Controller()
+        }
     }
 
     // MARK: - PS4 Controller Support
@@ -173,6 +176,15 @@ struct ProjectLauncherView: View {
                 handleAnalogNavigation(yValue: yValue)
             }
             .store(in: &cancellables)
+    }
+
+    private func cleanupPS4Controller() {
+        // Clear the button press handler to prevent interference with main app
+        ps4Monitor.onButtonPressed = nil
+        ps4Monitor.onButtonReleased = nil
+
+        // Cancel all subscriptions
+        cancellables.removeAll()
     }
 
     private func handleAnalogNavigation(yValue: Float) {
