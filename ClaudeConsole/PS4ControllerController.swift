@@ -46,6 +46,10 @@ class PS4ControllerController: ObservableObject {
     }
     private var pushToTalkState: PushToTalkState = .idle
 
+    // MARK: - Button Repeat State
+    private var repeatTimers: [PS4Button: DispatchSourceTimer] = [:]
+    private let repeatQueue = DispatchQueue(label: "com.claudeconsole.buttonrepeat", qos: .userInteractive)
+
     init() {
         // Initialize profileSwitcherController with the radialMenuController's profileManager
         profileSwitcherController = ProfileSwitcherController(profileManager: radialMenuController.profileManager)
@@ -190,6 +194,11 @@ class PS4ControllerController: ObservableObject {
                 } else if button != .l1 && button != .r1 {
                     // Execute action normally (but not for L1/R1, they're handled by radial menu)
                     self.executeButtonAction(action)
+
+                    // Check if repeat is enabled for this button
+                    if self.mapping.isRepeatEnabled(for: button) {
+                        self.startRepeatTimer(for: button, action: action)
+                    }
                 }
 
                 // Optional: Provide haptic feedback
@@ -200,6 +209,9 @@ class PS4ControllerController: ObservableObject {
         // Handle button releases
         monitor.onButtonReleased = { [weak self] button in
             guard let self = self, self.isEnabled else { return }
+
+            // Stop repeat timer for this button if active
+            self.stopRepeatTimer(for: button)
 
             // Handle touchpad release for profile switcher
             if button == .touchpad {
@@ -324,6 +336,9 @@ class PS4ControllerController: ObservableObject {
             }
         }
         pushToTalkState = .idle
+
+        // Stop all repeat timers
+        stopAllRepeatTimers()
 
         // Clean up any pending transcription subscription
         transcriptionCancellable?.cancel()
@@ -672,6 +687,51 @@ class PS4ControllerController: ObservableObject {
         mapping.setMapping(for: .psButton, action: .textMacro(text: "git status", autoEnter: true))
     }
 
+    // MARK: - Button Repeat Logic
+
+    private func startRepeatTimer(for button: PS4Button, action: ButtonAction) {
+        // Cancel any existing timer for this button
+        stopRepeatTimer(for: button)
+
+        let config = mapping.getRepeatConfig(for: button)
+
+        // Create a new timer
+        let timer = DispatchSource.makeTimerSource(queue: repeatQueue)
+
+        // Schedule timer: fire after initialDelay, then repeat every repeatInterval
+        timer.schedule(
+            deadline: .now() + config.initialDelay,
+            repeating: config.repeatInterval
+        )
+
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+
+            // Execute action on main queue
+            DispatchQueue.main.async {
+                self.executeButtonAction(action)
+            }
+        }
+
+        timer.resume()
+        repeatTimers[button] = timer
+    }
+
+    private func stopRepeatTimer(for button: PS4Button) {
+        if let timer = repeatTimers[button] {
+            timer.cancel()
+            repeatTimers.removeValue(forKey: button)
+        }
+    }
+
+    private func stopAllRepeatTimers() {
+        for (button, _) in repeatTimers {
+            stopRepeatTimer(for: button)
+        }
+    }
+
+    // MARK: - Notifications
+
     private func showConnectionNotification(connected: Bool) {
         let center = UNUserNotificationCenter.current()
 
@@ -733,6 +793,9 @@ class PS4ControllerController: ObservableObject {
                 speech.stopRecordingViaController()
             }
         }
+
+        // Stop all repeat timers
+        stopAllRepeatTimers()
 
         // FIX: Clear callbacks to break reference cycles
         // Without this, monitor could hold strong reference to self via closures

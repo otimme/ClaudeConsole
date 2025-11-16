@@ -331,12 +331,14 @@ enum SystemCommand: Codable, Equatable, Hashable {
 struct PS4ButtonMappingData: Codable {
     let version: Int
     let mappings: [PS4Button: ButtonAction]
+    let repeatConfigurations: [PS4Button: RepeatConfiguration]?
 
-    static let currentVersion = 2
+    static let currentVersion = 3
 
-    init(version: Int = currentVersion, mappings: [PS4Button: ButtonAction]) {
+    init(version: Int = currentVersion, mappings: [PS4Button: ButtonAction], repeatConfigurations: [PS4Button: RepeatConfiguration] = [:]) {
         self.version = version
         self.mappings = mappings
+        self.repeatConfigurations = repeatConfigurations
     }
 
     // Custom decoder to handle version migration
@@ -358,17 +360,26 @@ struct PS4ButtonMappingData: Codable {
                 // Migrate to new format by wrapping each KeyCommand in ButtonAction
                 self.mappings = legacyMappings.mapValues { ButtonAction.keyCommand($0) }
                 self.version = Self.currentVersion
+                self.repeatConfigurations = nil
             } catch {
                 // Second attempt: Legacy data might be under 'mappings' key
                 let oldMappings = try container.decode([PS4Button: KeyCommand].self, forKey: .mappings)
                 self.mappings = oldMappings.mapValues { ButtonAction.keyCommand($0) }
                 self.version = Self.currentVersion
+                self.repeatConfigurations = nil
             }
 
         case 2:
-            // Version 2: Current format with ButtonAction
+            // Version 2: Format with ButtonAction (no repeat configs)
             self.mappings = try container.decode([PS4Button: ButtonAction].self, forKey: .mappings)
             self.version = 2
+            self.repeatConfigurations = nil
+
+        case 3:
+            // Version 3: Current format with ButtonAction + repeat configurations
+            self.mappings = try container.decode([PS4Button: ButtonAction].self, forKey: .mappings)
+            self.repeatConfigurations = try container.decodeIfPresent([PS4Button: RepeatConfiguration].self, forKey: .repeatConfigurations)
+            self.version = 3
 
         default:
             // Future version we don't understand yet
@@ -384,6 +395,7 @@ struct PS4ButtonMappingData: Codable {
     enum CodingKeys: String, CodingKey {
         case version
         case mappings
+        case repeatConfigurations
     }
 }
 

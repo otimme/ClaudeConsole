@@ -71,6 +71,7 @@ struct PS4EnhancedConfigView: View {
                         mapping: mapping
                     )
                     .frame(maxWidth: .infinity)
+                    .id(button) // Force view recreation when button changes
                 } else {
                     EmptySelectionView()
                         .frame(maxWidth: .infinity)
@@ -206,6 +207,16 @@ struct ActionEditorView: View {
     @State private var showSaveSuccess = false
     @State private var loadedActionType: ActionType?  // Track what we loaded to prevent unwanted resets
 
+    // Repeat configuration
+    @State private var repeatEnabled = false
+    @State private var repeatInitialDelay: TimeInterval = 0.5
+    @State private var repeatInterval: TimeInterval = 0.1
+
+    // Saved repeat configuration for comparison
+    @State private var savedRepeatEnabled = false
+    @State private var savedRepeatInitialDelay: TimeInterval = 0.5
+    @State private var savedRepeatInterval: TimeInterval = 0.1
+
     enum ActionType: String, CaseIterable {
         case keyCommand = "Key Press"
         case textMacro = "Text Macro"
@@ -298,6 +309,21 @@ struct ActionEditorView: View {
                     }
                     .padding(.top)
                     .padding(.horizontal, 20)
+
+                    Divider()
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 20)
+
+                    // Repeat configuration
+                    RepeatConfigurationEditor(
+                        enabled: $repeatEnabled,
+                        initialDelay: $repeatInitialDelay,
+                        interval: $repeatInterval
+                    )
+                    .onChange(of: repeatEnabled) { _ in showSaveSuccess = false }
+                    .onChange(of: repeatInitialDelay) { _ in showSaveSuccess = false }
+                    .onChange(of: repeatInterval) { _ in showSaveSuccess = false }
+                    .padding(.horizontal, 20)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -373,14 +399,18 @@ struct ActionEditorView: View {
     private var hasChanges: Bool {
         // Check if the current preview action differs from the saved action
         let currentPreview = previewAction
-
-        // If we have a saved action, compare it
-        if let saved = savedAction {
-            return saved != currentPreview
+        let actionChanged = if let saved = savedAction {
+            saved != currentPreview
+        } else {
+            isValidAction
         }
 
-        // If no saved action exists, check if we have valid content to save
-        return isValidAction
+        // Check if repeat configuration changed
+        let repeatChanged = repeatEnabled != savedRepeatEnabled ||
+                           repeatInitialDelay != savedRepeatInitialDelay ||
+                           repeatInterval != savedRepeatInterval
+
+        return actionChanged || repeatChanged
     }
 
     private var canSave: Bool {
@@ -395,6 +425,17 @@ struct ActionEditorView: View {
         let action = mapping.getAction(for: targetButton)
         savedAction = action
         showSaveSuccess = false
+
+        // Load repeat configuration
+        let repeatConfig = mapping.getRepeatConfig(for: targetButton)
+        repeatEnabled = repeatConfig.enabled
+        repeatInitialDelay = repeatConfig.initialDelay
+        repeatInterval = repeatConfig.repeatInterval
+
+        // Save initial repeat values for change detection
+        savedRepeatEnabled = repeatConfig.enabled
+        savedRepeatInitialDelay = repeatConfig.initialDelay
+        savedRepeatInterval = repeatConfig.repeatInterval
 
         guard let action = action else {
             // No current action, reset to defaults for key command
@@ -454,7 +495,21 @@ struct ActionEditorView: View {
     private func saveAction() {
         let action = previewAction
         mapping.setMapping(for: button, action: action)
+
+        // Save repeat configuration
+        let repeatConfig = RepeatConfiguration(
+            enabled: repeatEnabled,
+            initialDelay: repeatInitialDelay,
+            repeatInterval: repeatInterval
+        )
+        mapping.setRepeatConfig(for: button, config: repeatConfig)
+
+        // Update saved values for change detection
         savedAction = action
+        savedRepeatEnabled = repeatEnabled
+        savedRepeatInitialDelay = repeatInitialDelay
+        savedRepeatInterval = repeatInterval
+
         showSaveSuccess = true
 
         // Hide success indicator after a short delay
@@ -975,5 +1030,95 @@ struct PresetSetCard: View {
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
+    }
+}
+
+// MARK: - Repeat Configuration Editor
+
+struct RepeatConfigurationEditor: View {
+    @Binding var enabled: Bool
+    @Binding var initialDelay: TimeInterval
+    @Binding var interval: TimeInterval
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Repeat on Hold")
+                    .font(.headline)
+
+                Spacer()
+
+                Toggle("", isOn: $enabled)
+                    .labelsHidden()
+            }
+
+            if enabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Like keyboard key repeat - hold the button to trigger the action repeatedly")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // Preset buttons
+                    HStack(spacing: 8) {
+                        Button("Fast") {
+                            initialDelay = RepeatConfiguration.fastNavigation.initialDelay
+                            interval = RepeatConfiguration.fastNavigation.repeatInterval
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
+                        Button("Medium") {
+                            initialDelay = RepeatConfiguration.medium.initialDelay
+                            interval = RepeatConfiguration.medium.repeatInterval
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
+                        Button("Slow") {
+                            initialDelay = RepeatConfiguration.slow.initialDelay
+                            interval = RepeatConfiguration.slow.repeatInterval
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    // Initial delay slider
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Initial Delay")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(String(format: "%.2fs", initialDelay))
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                                .monospacedDigit()
+                        }
+
+                        Slider(value: $initialDelay, in: 0.1...2.0, step: 0.1)
+                    }
+
+                    // Repeat interval slider
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Repeat Interval")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(String(format: "%.2fs", interval))
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                                .monospacedDigit()
+                        }
+
+                        Slider(value: $interval, in: 0.05...1.0, step: 0.05)
+                    }
+                }
+                .padding(.leading)
+            }
+        }
     }
 }
