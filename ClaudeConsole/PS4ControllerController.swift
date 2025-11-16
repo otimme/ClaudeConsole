@@ -222,6 +222,7 @@ class PS4ControllerController: ObservableObject {
             // Handle radial menu release for L1/R1
             if button == .l1 || button == .r1 {
                 self.radialMenuController.handleButtonRelease(button)
+                return  // Don't process other release handlers
             }
 
             // Check if this is a push-to-talk button being released
