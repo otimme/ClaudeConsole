@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var terminalController: LocalProcessTerminalView?
     @State private var showPS4Controller = false
     @State private var useCompactStatusBar = false
-    @AppStorage("showPS4StatusBar") private var showPS4StatusBar = true
+    @State private var showPS4StatusBar = false  // Always starts hidden, no persistence
 
     // Project Launcher
     @State private var showProjectLauncher = false
@@ -278,13 +278,17 @@ struct ContentView: View {
             ps4Controller.appCommandExecutor.terminalController = terminalController
             ps4Controller.appCommandExecutor.contextMonitor = contextMonitor
 
-            // Sync UI state with AppCommandExecutor
+            // CRITICAL FIX: Sync UI state with AppCommandExecutor
+            // ContentView @State is the source of truth - always starts hidden (no persistence)
+            // AppCommandExecutor should mirror these values, not override them
             ps4Controller.appCommandExecutor.showPS4Panel = showPS4Controller
             ps4Controller.appCommandExecutor.showPS4StatusBar = showPS4StatusBar
 
             // FIX: Bidirectional binding with weak captures to prevent retain cycles
             // Observe AppCommandExecutor state changes and update local @State
+            // Skip the first emission to avoid overriding initial @State values
             ps4Controller.appCommandExecutor.$showPS4Panel
+                .dropFirst() // Skip initial value to preserve @State
                 .receive(on: DispatchQueue.main)
                 .sink { [weak subscriptionManager] newValue in
                     guard subscriptionManager != nil else { return }
@@ -293,6 +297,7 @@ struct ContentView: View {
                 .store(in: &subscriptionManager.cancellables)
 
             ps4Controller.appCommandExecutor.$showPS4StatusBar
+                .dropFirst() // Skip initial value to preserve @State
                 .receive(on: DispatchQueue.main)
                 .sink { [weak subscriptionManager] newValue in
                     guard subscriptionManager != nil else { return }

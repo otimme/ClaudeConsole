@@ -55,9 +55,9 @@ struct PS4ControllerView: View {
                     .frame(width: 350, height: 240)
 
                 // All button components
-                VStack(spacing: 50) {
+                VStack(spacing: 35) {
                     // Top section (L1/R1, L2/R2)
-                    HStack(spacing: 140) {
+                    HStack(spacing: 160) {
                         VStack(spacing: 8) {
                             ShoulderButton(
                                 label: "L2",
@@ -86,10 +86,11 @@ struct PS4ControllerView: View {
                     }
 
                     // Middle section (sticks, d-pad, buttons, center)
-                    HStack(spacing: 30) {
+                    HStack(alignment: .bottom, spacing: 30) {
                         // Left side - D-pad and left stick
-                        VStack(spacing: 20) {
+                        VStack(alignment: .center, spacing: 20) {
                             DPadView(monitor: monitor, mapping: mapping)
+                                .frame(height: 70) // Match face buttons height
                             AnalogStick(
                                 label: "L3",
                                 x: monitor.leftStickX,
@@ -98,6 +99,7 @@ struct PS4ControllerView: View {
                                 mapping: mapping.getCommand(for: .l3)?.displayString
                             )
                         }
+                        .frame(width: 70) // Fixed width for alignment
 
                         // Center - Share/Create, Touchpad, Options, PS, Mute
                         VStack(spacing: 8) {
@@ -149,8 +151,9 @@ struct PS4ControllerView: View {
                         }
 
                         // Right side - Face buttons and right stick
-                        VStack(spacing: 20) {
+                        VStack(alignment: .center, spacing: 20) {
                             FaceButtonsView(monitor: monitor, mapping: mapping)
+                                .frame(height: 70) // Match D-pad height
                             AnalogStick(
                                 label: "R3",
                                 x: monitor.rightStickX,
@@ -159,6 +162,7 @@ struct PS4ControllerView: View {
                                 mapping: mapping.getCommand(for: .r3)?.displayString
                             )
                         }
+                        .frame(width: 70) // Fixed width for alignment
                     }
                 }
                 .offset(y: -10)
@@ -270,36 +274,43 @@ struct FaceButtonsView: View {
                 .fill(Color.black.opacity(0.1))
                 .frame(width: 70, height: 70)
 
-            // Face buttons
-            VStack(spacing: 15) {
+            // Face buttons in perfect diamond pattern
+            ZStack {
+                // Triangle (top)
                 FaceButton(
                     symbol: "△",
                     color: .green,
                     isPressed: monitor.pressedButtons.contains(.triangle),
                     mapping: mapping.getCommand(for: .triangle)?.displayString
                 )
+                .offset(y: -20)
 
-                HStack(spacing: 15) {
-                    FaceButton(
-                        symbol: "□",
-                        color: .pink,
-                        isPressed: monitor.pressedButtons.contains(.square),
-                        mapping: mapping.getCommand(for: .square)?.displayString
-                    )
-                    FaceButton(
-                        symbol: "○",
-                        color: .red,
-                        isPressed: monitor.pressedButtons.contains(.circle),
-                        mapping: mapping.getCommand(for: .circle)?.displayString
-                    )
-                }
+                // Square (left)
+                FaceButton(
+                    symbol: "□",
+                    color: .pink,
+                    isPressed: monitor.pressedButtons.contains(.square),
+                    mapping: mapping.getCommand(for: .square)?.displayString
+                )
+                .offset(x: -20)
 
+                // Circle (right)
+                FaceButton(
+                    symbol: "○",
+                    color: .red,
+                    isPressed: monitor.pressedButtons.contains(.circle),
+                    mapping: mapping.getCommand(for: .circle)?.displayString
+                )
+                .offset(x: 20)
+
+                // Cross (bottom)
                 FaceButton(
                     symbol: "✕",
                     color: .blue,
                     isPressed: monitor.pressedButtons.contains(.cross),
                     mapping: mapping.getCommand(for: .cross)?.displayString
                 )
+                .offset(y: 20)
             }
         }
     }
