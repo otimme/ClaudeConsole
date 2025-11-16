@@ -123,6 +123,17 @@ class PS4ControllerMonitor: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var batteryMonitorTimer: Timer?
 
+    // Trigger debouncing state (prevent rapid re-triggers from analog fluctuation)
+    private var l2Pressed: Bool = false
+    private var r2Pressed: Bool = false
+
+    // Analog stick dead zone filtering (prevent CPU waste from tiny fluctuations)
+    private var lastLeftStickX: Float = 0
+    private var lastLeftStickY: Float = 0
+    private var lastRightStickX: Float = 0
+    private var lastRightStickY: Float = 0
+    private static let analogStickThreshold: Float = 0.01  // Only update if change > 1%
+
     // Callbacks for button events
     var onButtonPressed: ((PS4Button) -> Void)?
     var onButtonReleased: ((PS4Button) -> Void)?
@@ -218,6 +229,16 @@ class PS4ControllerMonitor: ObservableObject {
             self.batteryLevel = nil
             self.batteryState = .unknown
             self.batteryIsUnavailable = false
+
+            // Reset trigger debounce state
+            self.l2Pressed = false
+            self.r2Pressed = false
+
+            // Reset analog stick dead zone state
+            self.lastLeftStickX = 0
+            self.lastLeftStickY = 0
+            self.lastRightStickX = 0
+            self.lastRightStickY = 0
 
             // Invalidate battery monitoring timer
             self.batteryMonitorTimer?.invalidate()
@@ -316,6 +337,11 @@ class PS4ControllerMonitor: ObservableObject {
     }
 
     private func updateBatteryStatus() {
+        // For DualSense, skip GameController battery - use HID battery reader instead
+        if controllerType == .dualSense {
+            return
+        }
+
         guard let battery = controller?.battery else {
             if batteryLevel != nil {
                 print("PS4Controller: Battery info lost - controller battery is now nil")
@@ -332,14 +358,13 @@ class PS4ControllerMonitor: ObservableObject {
         let level = battery.batteryLevel
         let state = battery.batteryState
 
-        // For DualSense, always show battery data even if it's 0/unknown
         // For DualShock 4, mark as unavailable if 0/unknown
-        if level == 0 && state == .unknown && controllerType == .dualShock4 {
+        if level == 0 && state == .unknown {
             batteryLevel = nil
             batteryState = .unknown
             batteryIsUnavailable = true
         } else {
-            // Show battery data for DualSense or any valid battery reading
+            // Show battery data for valid readings
             batteryLevel = level
             batteryState = state
             batteryIsUnavailable = false
@@ -461,45 +486,81 @@ class PS4ControllerMonitor: ObservableObject {
             setupButton(gamepad.buttonMenu, button: .options)
         }
 
-        // Triggers (analog)
+        // Triggers (analog) with debouncing to prevent rapid re-triggers
         gamepad.leftTrigger.valueChangedHandler = { [weak self] _, value, _ in
             DispatchQueue.main.async {
-                self?.l2Value = value
-                if value > Self.triggerPressThreshold {
-                    self?.pressedButtons.insert(.l2)
-                    self?.onButtonPressed?(.l2)
-                } else {
-                    self?.pressedButtons.remove(.l2)
-                    self?.onButtonReleased?(.l2)
+                guard let self = self else { return }
+                self.l2Value = value
+
+                let shouldBePressed = value > Self.triggerPressThreshold
+
+                // Only fire callbacks when state actually changes
+                if shouldBePressed && !self.l2Pressed {
+                    self.l2Pressed = true
+                    self.pressedButtons.insert(.l2)
+                    self.onButtonPressed?(.l2)
+                } else if !shouldBePressed && self.l2Pressed {
+                    self.l2Pressed = false
+                    self.pressedButtons.remove(.l2)
+                    self.onButtonReleased?(.l2)
                 }
             }
         }
 
         gamepad.rightTrigger.valueChangedHandler = { [weak self] _, value, _ in
             DispatchQueue.main.async {
-                self?.r2Value = value
-                if value > Self.triggerPressThreshold {
-                    self?.pressedButtons.insert(.r2)
-                    self?.onButtonPressed?(.r2)
-                } else {
-                    self?.pressedButtons.remove(.r2)
-                    self?.onButtonReleased?(.r2)
+                guard let self = self else { return }
+                self.r2Value = value
+
+                let shouldBePressed = value > Self.triggerPressThreshold
+
+                // Only fire callbacks when state actually changes
+                if shouldBePressed && !self.r2Pressed {
+                    self.r2Pressed = true
+                    self.pressedButtons.insert(.r2)
+                    self.onButtonPressed?(.r2)
+                } else if !shouldBePressed && self.r2Pressed {
+                    self.r2Pressed = false
+                    self.pressedButtons.remove(.r2)
+                    self.onButtonReleased?(.r2)
                 }
             }
         }
 
-        // Analog sticks
+        // Analog sticks (with dead zone filtering to reduce CPU usage)
         gamepad.leftThumbstick.valueChangedHandler = { [weak self] _, xValue, yValue in
-            DispatchQueue.main.async {
-                self?.leftStickX = xValue
-                self?.leftStickY = yValue
+            guard let self = self else { return }
+
+            // Only update if change exceeds threshold (prevents CPU waste from tiny fluctuations)
+            let xChanged = abs(xValue - self.lastLeftStickX) > Self.analogStickThreshold
+            let yChanged = abs(yValue - self.lastLeftStickY) > Self.analogStickThreshold
+
+            if xChanged || yChanged {
+                self.lastLeftStickX = xValue
+                self.lastLeftStickY = yValue
+
+                DispatchQueue.main.async {
+                    self.leftStickX = xValue
+                    self.leftStickY = yValue
+                }
             }
         }
 
         gamepad.rightThumbstick.valueChangedHandler = { [weak self] _, xValue, yValue in
-            DispatchQueue.main.async {
-                self?.rightStickX = xValue
-                self?.rightStickY = yValue
+            guard let self = self else { return }
+
+            // Only update if change exceeds threshold (prevents CPU waste from tiny fluctuations)
+            let xChanged = abs(xValue - self.lastRightStickX) > Self.analogStickThreshold
+            let yChanged = abs(yValue - self.lastRightStickY) > Self.analogStickThreshold
+
+            if xChanged || yChanged {
+                self.lastRightStickX = xValue
+                self.lastRightStickY = yValue
+
+                DispatchQueue.main.async {
+                    self.rightStickX = xValue
+                    self.rightStickY = yValue
+                }
             }
         }
     }

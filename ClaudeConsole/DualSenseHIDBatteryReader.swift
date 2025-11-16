@@ -42,6 +42,11 @@ class DualSenseHIDBatteryReader: ObservableObject {
     private var hasReceivedFirstReport = false
     private var hasShownBatteryOffsetError = false
 
+    // Battery update throttling (prevent CPU waste from high-frequency HID reports)
+    private var lastBatteryUpdateTime: Date = .distantPast
+    private var hasInitialBatteryData: Bool = false  // Thread-safe flag for first reading
+    private static let batteryUpdateInterval: TimeInterval = 60.0  // Update every 60 seconds
+
     enum ConnectionMode {
         case usb
         case bluetooth
@@ -130,6 +135,9 @@ class DualSenseHIDBatteryReader: ObservableObject {
     private func deviceDisconnected(_ device: IOHIDDevice) {
         Self.logger.info("DualSense HID device disconnected")
 
+        // Reset throttling flag
+        hasInitialBatteryData = false
+
         DispatchQueue.main.async {
             self.device = nil
             self.isConnected = false
@@ -192,6 +200,16 @@ class DualSenseHIDBatteryReader: ObservableObject {
             hasReceivedFirstReport = true
         }
 
+        // Throttle battery updates to reduce CPU usage (only after we have initial data)
+        // DualSense sends reports at 250+ Hz, but battery changes slowly
+        if hasInitialBatteryData {
+            let now = Date()
+            guard now.timeIntervalSince(lastBatteryUpdateTime) >= Self.batteryUpdateInterval else {
+                // Skip this report - not enough time has passed
+                return
+            }
+        }
+
         // Determine battery offset and validate report length
         // Report 0x01 (USB/simple format):
         //   - Full USB: 64 bytes, battery at offset 53
@@ -248,6 +266,10 @@ class DualSenseHIDBatteryReader: ObservableObject {
         // Calculate battery percentage (0.0-1.0)
         // Each unit represents ~10%, centered in range: 0→5%, 1→15%, ..., 10→100%
         let percentage = min(Float(capacity) * 10.0 + 5.0, 100.0) / 100.0
+
+        // Update timestamp and flag before dispatching to main queue
+        lastBatteryUpdateTime = Date()
+        hasInitialBatteryData = true
 
         // Update published properties on main thread
         DispatchQueue.main.async { [weak self] in
