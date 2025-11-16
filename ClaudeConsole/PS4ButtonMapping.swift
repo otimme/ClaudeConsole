@@ -2,12 +2,35 @@
 //  PS4ButtonMapping.swift
 //  ClaudeConsole
 //
-//  Models for mapping PS4 controller buttons to keyboard commands
+//  Models for mapping PlayStation controller buttons to keyboard commands
+//  Supports both DualShock 4 (PS4) and DualSense (PS5) controllers
 //
 
 import Foundation
 import AppKit
 import os.log
+
+// MARK: - Repeat Configuration
+
+/// Configuration for button repeat behavior (like keyboard key repeat)
+struct RepeatConfiguration: Codable, Equatable, Hashable {
+    var enabled: Bool
+    var initialDelay: TimeInterval  // Delay before first repeat (default 0.5s)
+    var repeatInterval: TimeInterval  // Time between repeats (default 0.1s)
+
+    static let defaultConfig = RepeatConfiguration(enabled: false, initialDelay: 0.5, repeatInterval: 0.1)
+
+    /// Preset for fast navigation (arrows, page up/down)
+    static let fastNavigation = RepeatConfiguration(enabled: true, initialDelay: 0.3, repeatInterval: 0.05)
+
+    /// Preset for medium speed (general purpose)
+    static let medium = RepeatConfiguration(enabled: true, initialDelay: 0.5, repeatInterval: 0.1)
+
+    /// Preset for slow repeat (careful actions)
+    static let slow = RepeatConfiguration(enabled: true, initialDelay: 0.7, repeatInterval: 0.2)
+}
+
+// MARK: - Key Command
 
 // Represents a keyboard command (key + modifiers)
 struct KeyCommand: Codable, Equatable, Hashable {
@@ -212,37 +235,54 @@ struct KeyModifiers: Codable, OptionSet, Hashable {
 // Main mapping class
 class PS4ButtonMapping: ObservableObject, Codable {
     @Published var mappings: [PS4Button: ButtonAction]
+    @Published var repeatConfigurations: [PS4Button: RepeatConfiguration]
 
     // Default mappings - now using ButtonAction
+    // Works for both DualShock 4 and DualSense controllers
     static let defaultMappings: [PS4Button: ButtonAction] = [
+        // Face buttons
         .cross: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])),
         .circle: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])),
         .square: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.space.rawValue, modifiers: [])),
         .triangle: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: [])),
+
+        // D-Pad
         .dpadUp: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: [])),
         .dpadDown: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: [])),
         .dpadLeft: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: [])),
         .dpadRight: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: [])),
+
+        // Shoulders and Triggers
         .l1: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: [])),
         .r1: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: [])),
         .l2: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.home.rawValue, modifiers: [])),
         .r2: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.end.rawValue, modifiers: [])),
-        .options: .keyCommand(KeyCommand(key: "c", modifiers: .control)),
-        .share: .keyCommand(KeyCommand(key: "z", modifiers: .control)),
+
+        // Stick buttons
         .l3: .keyCommand(KeyCommand(key: "a", modifiers: .control)),
         .r3: .keyCommand(KeyCommand(key: "e", modifiers: .control)),
-        // New example mappings showing different action types
+
+        // Center buttons
+        .options: .keyCommand(KeyCommand(key: "c", modifiers: .control)),
+        .share: .keyCommand(KeyCommand(key: "z", modifiers: .control)),      // DualShock 4
+        .create: .keyCommand(KeyCommand(key: "z", modifiers: .control)),     // DualSense (same as Share)
         .touchpad: .applicationCommand(.showUsage),
-        .psButton: .applicationCommand(.togglePS4Panel)
+        .psButton: .applicationCommand(.togglePS4Panel),
+
+        // DualSense-specific buttons
+        .mute: .applicationCommand(.triggerSpeechToText)  // Toggle speech-to-text with mute button
     ]
 
     init() {
-        self.mappings = Self.loadMappings()
+        let (loadedMappings, loadedRepeats) = Self.loadMappings()
+        self.mappings = loadedMappings
+        self.repeatConfigurations = loadedRepeats
     }
 
     // Codable
     enum CodingKeys: String, CodingKey {
         case mappings
+        case repeatConfigurations
     }
 
     required init(from decoder: Decoder) throws {
@@ -250,27 +290,31 @@ class PS4ButtonMapping: ObservableObject, Codable {
         let decodedMappings = try container.decode([PS4Button: ButtonAction].self, forKey: .mappings)
         // Initialize the @Published property directly to ensure proper notification
         self.mappings = decodedMappings
+
+        // Repeat configurations might not exist in older saves
+        self.repeatConfigurations = (try? container.decode([PS4Button: RepeatConfiguration].self, forKey: .repeatConfigurations)) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(mappings, forKey: .mappings)
+        try container.encode(repeatConfigurations, forKey: .repeatConfigurations)
     }
 
     // Persistence
     private static let mappingsKey = "PS4ControllerMappings"
 
-    static func loadMappings() -> [PS4Button: ButtonAction] {
+    static func loadMappings() -> ([PS4Button: ButtonAction], [PS4Button: RepeatConfiguration]) {
         guard let data = UserDefaults.standard.data(forKey: mappingsKey) else {
             // No saved mappings, use defaults
-            return defaultMappings
+            return (defaultMappings, [:])
         }
 
         do {
             // First try to decode as versioned data (v2)
             let versionedData = try JSONDecoder().decode(PS4ButtonMappingData.self, from: data)
             print("INFO: Loaded PS4 controller mappings (version \(versionedData.version))")
-            return versionedData.mappings
+            return (versionedData.mappings, versionedData.repeatConfigurations ?? [:])
         } catch {
             // Fallback: Try to decode as legacy format (v1 - direct dictionary)
             do {
@@ -281,17 +325,17 @@ class PS4ButtonMapping: ObservableObject, Codable {
                 let migratedMappings = legacyMappings.mapValues { ButtonAction.keyCommand($0) }
 
                 // Save in new format for next time
-                let newData = PS4ButtonMappingData(version: PS4ButtonMappingData.currentVersion, mappings: migratedMappings)
+                let newData = PS4ButtonMappingData(version: PS4ButtonMappingData.currentVersion, mappings: migratedMappings, repeatConfigurations: [:])
                 if let encoded = try? JSONEncoder().encode(newData) {
                     UserDefaults.standard.set(encoded, forKey: mappingsKey)
                     print("INFO: Successfully migrated and saved mappings in new format")
                 }
 
-                return migratedMappings
+                return (migratedMappings, [:])
             } catch {
                 print("ERROR: Failed to load PS4 controller mappings: \(error)")
                 print("INFO: Falling back to default mappings")
-                return defaultMappings
+                return (defaultMappings, [:])
             }
         }
     }
@@ -304,7 +348,8 @@ class PS4ButtonMapping: ObservableObject, Codable {
             // Save with version information
             let versionedData = PS4ButtonMappingData(
                 version: PS4ButtonMappingData.currentVersion,
-                mappings: mappings
+                mappings: mappings,
+                repeatConfigurations: repeatConfigurations
             )
             let encoded = try JSONEncoder().encode(versionedData)
             UserDefaults.standard.set(encoded, forKey: Self.mappingsKey)
@@ -320,6 +365,7 @@ class PS4ButtonMapping: ObservableObject, Codable {
     func resetToDefaults() {
         // @Published property will automatically trigger objectWillChange
         mappings = Self.defaultMappings
+        repeatConfigurations = [:]
         _ = saveMappings()
     }
 
@@ -332,6 +378,26 @@ class PS4ButtonMapping: ObservableObject, Codable {
     func getAction(for button: PS4Button) -> ButtonAction? {
         return mappings[button]
     }
+
+    // MARK: - Repeat Configuration
+
+    /// Get repeat configuration for a button (returns default if not set)
+    func getRepeatConfig(for button: PS4Button) -> RepeatConfiguration {
+        return repeatConfigurations[button] ?? .defaultConfig
+    }
+
+    /// Set repeat configuration for a button
+    func setRepeatConfig(for button: PS4Button, config: RepeatConfiguration) {
+        repeatConfigurations[button] = config
+        _ = saveMappings()
+    }
+
+    /// Check if repeat is enabled for a button
+    func isRepeatEnabled(for button: PS4Button) -> Bool {
+        return getRepeatConfig(for: button).enabled
+    }
+
+    // MARK: - Legacy Support
 
     // Legacy support - convenience method for setting key commands
     func setKeyCommand(for button: PS4Button, command: KeyCommand) {

@@ -2,7 +2,8 @@
 //  PS4ControllerView.swift
 //  ClaudeConsole
 //
-//  Visual representation of PS4 controller with button states
+//  Visual representation of PlayStation controller with button states
+//  Supports both DualShock 4 (PS4) and DualSense (PS5) controllers
 //
 
 import SwiftUI
@@ -18,7 +19,11 @@ struct PS4ControllerView: View {
         VStack(spacing: 12) {
             // Header
             HStack {
-                Label(monitor.isConnected ? "PS4 Controller Connected" : "No PS4 Controller",
+                let statusText = monitor.isConnected
+                    ? "\(monitor.controllerType.displayName) Connected"
+                    : "No Controller Connected"
+
+                Label(statusText,
                       systemImage: monitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
                     .foregroundColor(monitor.isConnected ? .green : .gray)
 
@@ -94,15 +99,26 @@ struct PS4ControllerView: View {
                             )
                         }
 
-                        // Center - Share, Touchpad, Options, PS
+                        // Center - Share/Create, Touchpad, Options, PS, Mute
                         VStack(spacing: 8) {
                             HStack(spacing: 20) {
-                                CenterButton(
-                                    label: "Share",
-                                    isPressed: monitor.pressedButtons.contains(.share),
-                                    mapping: mapping.getCommand(for: .share)?.displayString,
-                                    width: 35
-                                )
+                                // Show Share (PS4) or Create (PS5) button depending on controller type
+                                if monitor.controllerType == .dualSense {
+                                    CenterButton(
+                                        label: "Create",
+                                        isPressed: monitor.pressedButtons.contains(.create),
+                                        mapping: mapping.getCommand(for: .create)?.displayString,
+                                        width: 35
+                                    )
+                                } else {
+                                    CenterButton(
+                                        label: "Share",
+                                        isPressed: monitor.pressedButtons.contains(.share),
+                                        mapping: mapping.getCommand(for: .share)?.displayString,
+                                        width: 35
+                                    )
+                                }
+
                                 CenterButton(
                                     label: "Options",
                                     isPressed: monitor.pressedButtons.contains(.options),
@@ -120,6 +136,16 @@ struct PS4ControllerView: View {
                                 isPressed: monitor.pressedButtons.contains(.psButton),
                                 mapping: mapping.getCommand(for: .psButton)?.displayString
                             )
+
+                            // Show Mute button for DualSense controllers
+                            if monitor.controllerType == .dualSense {
+                                CenterButton(
+                                    label: "Mute",
+                                    isPressed: monitor.pressedButtons.contains(.mute),
+                                    mapping: mapping.getCommand(for: .mute)?.displayString,
+                                    width: 35
+                                )
+                            }
                         }
 
                         // Right side - Face buttons and right stick

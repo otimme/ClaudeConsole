@@ -2,7 +2,8 @@
 //  PS4ControllerMonitor.swift
 //  ClaudeConsole
 //
-//  Monitors PS4 DualShock 4 controller input using GameController framework
+//  Monitors PlayStation controller input using GameController framework
+//  Supports both DualShock 4 (PS4) and DualSense (PS5) controllers
 //
 
 import Foundation
@@ -10,7 +11,30 @@ import GameController
 import Combine
 import os.log
 
-// Enum for all PS4 controller buttons
+// Controller type identification
+enum ControllerType: String, Codable {
+    case dualShock4 = "DualShock 4"
+    case dualSense = "DualSense"
+    case unknown = "Unknown"
+
+    var displayName: String {
+        switch self {
+        case .dualShock4: return "PlayStation 4 DualShock 4"
+        case .dualSense: return "PlayStation 5 DualSense"
+        case .unknown: return "Generic Controller"
+        }
+    }
+
+    var shortName: String {
+        switch self {
+        case .dualShock4: return "PS4"
+        case .dualSense: return "PS5"
+        case .unknown: return "Controller"
+        }
+    }
+}
+
+// Enum for all PlayStation controller buttons (DualShock 4 and DualSense)
 enum PS4Button: String, CaseIterable, Codable {
     // Face buttons
     case cross = "✕"
@@ -34,11 +58,15 @@ enum PS4Button: String, CaseIterable, Codable {
     case l3 = "L3"
     case r3 = "R3"
 
-    // Center buttons
+    // Center buttons (DualShock 4 & DualSense)
     case options = "Options"
-    case share = "Share"
+    case share = "Share"        // DualShock 4 only
+    case create = "Create"      // DualSense only (replaces Share)
     case touchpad = "Touchpad"
     case psButton = "PS"
+
+    // DualSense-specific buttons
+    case mute = "Mute"          // DualSense microphone mute button
 
     var displayName: String {
         switch self {
@@ -57,9 +85,11 @@ enum PS4Button: String, CaseIterable, Codable {
         case .l3: return "L3 (Left Stick)"
         case .r3: return "R3 (Right Stick)"
         case .options: return "Options"
-        case .share: return "Share"
+        case .share: return "Share (PS4)"
+        case .create: return "Create (PS5)"
         case .touchpad: return "Touchpad"
         case .psButton: return "PS Button"
+        case .mute: return "Mute (PS5)"
         }
     }
 }
@@ -73,7 +103,12 @@ class PS4ControllerMonitor: ObservableObject {
     private static let triggerPressThreshold: Float = 0.5  // L2/R2 trigger threshold
 
     @Published var isConnected = false
+    @Published var controllerType: ControllerType = .unknown
     @Published var pressedButtons: Set<PS4Button> = []
+
+    // HID battery reader for DualSense (bypasses GameController limitations)
+    private var hidBatteryReader: DualSenseHIDBatteryReader?
+    private var hidBatteryCancellable: AnyCancellable?
     @Published var leftStickX: Float = 0
     @Published var leftStickY: Float = 0
     @Published var rightStickX: Float = 0
@@ -94,10 +129,47 @@ class PS4ControllerMonitor: ObservableObject {
 
     init() {
         setupControllerNotifications()
+
+        // Initialize HID battery reader for DualSense
+        setupHIDBatteryReader()
+
         // Check for already connected controllers after a brief delay to ensure UI is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.connectToController()
         }
+    }
+
+    private func setupHIDBatteryReader() {
+        // Create HID battery reader for DualSense
+        let reader = DualSenseHIDBatteryReader()
+        self.hidBatteryReader = reader
+
+        // Subscribe to HID battery updates
+        hidBatteryCancellable = reader.$batteryLevel
+            .combineLatest(reader.$batteryState)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] level, state in
+                guard let self = self else { return }
+
+                // Only use HID battery for DualSense controllers
+                if self.controllerType == .dualSense, let level = level {
+                    self.batteryLevel = level
+
+                    // Map HID battery state to GameController battery state
+                    switch state {
+                    case .charging:
+                        self.batteryState = .charging
+                    case .full:
+                        self.batteryState = .full
+                    case .discharging:
+                        self.batteryState = .discharging
+                    default:
+                        self.batteryState = .unknown
+                    }
+
+                    self.batteryIsUnavailable = false
+                }
+            }
     }
 
     private func setupControllerNotifications() {
@@ -140,6 +212,7 @@ class PS4ControllerMonitor: ObservableObject {
 
             // Set connection state immediately for instant UI update
             self.isConnected = false
+            self.controllerType = .unknown
             self.controller = nil
             self.pressedButtons.removeAll()
             self.batteryLevel = nil
@@ -169,14 +242,26 @@ class PS4ControllerMonitor: ObservableObject {
             Self.logger.debug("Controller type: \(String(describing: type(of: controller)))")
             Self.logger.debug("Has battery: \(controller.battery != nil)")
 
-            // Check physical input profile
+            // Detect controller type
             if #available(macOS 11.3, *) {
                 if let _ = controller.physicalInputProfile as? GCDualSenseGamepad {
+                    self.controllerType = .dualSense
                     print("PS4Controller: Detected as DualSense (PS5) controller")
                 } else if let _ = controller.physicalInputProfile as? GCDualShockGamepad {
+                    self.controllerType = .dualShock4
                     print("PS4Controller: Detected as DualShock (PS4) controller")
                 } else {
+                    self.controllerType = .unknown
                     print("PS4Controller: Generic controller profile")
+                }
+            } else {
+                // On older macOS versions, try to detect from product category or vendor name
+                if controller.productCategory == "DualShock 4" {
+                    self.controllerType = .dualShock4
+                } else if controller.productCategory == "DualSense" {
+                    self.controllerType = .dualSense
+                } else {
+                    self.controllerType = .unknown
                 }
             }
 
@@ -185,28 +270,40 @@ class PS4ControllerMonitor: ObservableObject {
                 let level = battery.batteryLevel
                 let state = battery.batteryState
 
-                print("PS4Controller: Battery detected - Level: \(level) (\(Int(level * 100))%)")
-                print("PS4Controller: Battery state: \(batteryStateString(state))")
-                print("PS4Controller: Battery raw value: \(battery.batteryLevel)")
+                print("=== Battery Information ===")
+                print("Controller Type: \(self.controllerType.displayName)")
+                print("Battery Level: \(level) (\(Int(level * 100))%)")
+                print("Battery State: \(batteryStateString(state))")
+                print("Battery Raw: \(battery.batteryLevel)")
+                print("==========================")
 
-                // Special handling for PS4 controllers that report 0 battery with unknown state
-                // This is common for DualShock 4 controllers on macOS
-                if level == 0 && state == .unknown {
+                // DualSense controllers should have better battery reporting than DualShock 4
+                // Only mark as unavailable if we're certain there's no battery info
+                if level == 0 && state == .unknown && self.controllerType == .dualShock4 {
+                    // DualShock 4 commonly reports 0/unknown on macOS
                     Self.logger.info("Battery information unavailable (common for DualShock 4 on macOS)")
-                    // Mark battery as unavailable instead of faking data
                     self.batteryLevel = nil
                     self.batteryState = .unknown
                     self.batteryIsUnavailable = true
-                } else {
+                } else if level == 0 && state == .unknown && self.controllerType == .dualSense {
+                    // DualSense reporting 0/unknown - might be charging or disconnected
+                    // Show the data anyway and let the user see it
+                    Self.logger.info("DualSense battery reports 0/unknown - showing as-is (may update)")
                     self.batteryLevel = level
                     self.batteryState = state
                     self.batteryIsUnavailable = false
+                } else {
+                    // Valid battery data - show it
+                    self.batteryLevel = level
+                    self.batteryState = state
+                    self.batteryIsUnavailable = false
+                    print("✓ Battery info available: \(Int(level * 100))% (\(batteryStateString(state)))")
                 }
             } else {
                 self.batteryLevel = nil
                 self.batteryState = .unknown
                 self.batteryIsUnavailable = true
-                print("PS4Controller: No battery information available")
+                print("⚠ Controller battery object is nil - no battery API available")
             }
 
             setupControllerCallbacks()
@@ -225,6 +322,7 @@ class PS4ControllerMonitor: ObservableObject {
             }
             batteryLevel = nil
             batteryState = .unknown
+            batteryIsUnavailable = true
             return
         }
 
@@ -234,14 +332,29 @@ class PS4ControllerMonitor: ObservableObject {
         let level = battery.batteryLevel
         let state = battery.batteryState
 
-        // Always show accurate battery data - never fabricate values
-        batteryLevel = level
-        batteryState = state
+        // For DualSense, always show battery data even if it's 0/unknown
+        // For DualShock 4, mark as unavailable if 0/unknown
+        if level == 0 && state == .unknown && controllerType == .dualShock4 {
+            batteryLevel = nil
+            batteryState = .unknown
+            batteryIsUnavailable = true
+        } else {
+            // Show battery data for DualSense or any valid battery reading
+            batteryLevel = level
+            batteryState = state
+            batteryIsUnavailable = false
+        }
 
-        // Log if battery changed significantly
-        if oldLevel == nil || abs((oldLevel ?? 0) - level) > 0.05 {
-            os_log("PS4Controller: Battery update - Level: %{public}f (%d%%)", log: .default, type: .info, level, Int(level * 100))
-            os_log("PS4Controller: Battery state: %{public}@", log: .default, type: .info, batteryStateString(state))
+        // Log battery changes with detailed info
+        if oldLevel == nil || abs((oldLevel ?? 0) - level) > 0.05 || oldState != state {
+            print("🔋 Battery Update [\(controllerType.shortName)]:")
+            print("   Level: \(Int(level * 100))% (raw: \(level))")
+            print("   State: \(batteryStateString(state))")
+            if let old = oldLevel {
+                print("   Previous: \(Int(old * 100))%")
+            }
+            os_log("Battery: %{public}@ %d%% (%{public}@)", log: .default, type: .info,
+                   controllerType.shortName, Int(level * 100), batteryStateString(state))
         }
     }
 
@@ -304,25 +417,48 @@ class PS4ControllerMonitor: ObservableObject {
             setupButton(rightThumbstickButton, button: .r3)
         }
 
-        // Options and Share buttons
-        if let optionsButton = gamepad.buttonOptions {
-            setupButton(optionsButton, button: .options)
-        }
-        // buttonMenu is not optional
-        setupButton(gamepad.buttonMenu, button: .share)
-
         // PS button (home button)
         if let homeButton = gamepad.buttonHome {
             setupButton(homeButton, button: .psButton)
         }
 
-        // Touchpad button (if available on DualShock 4)
+        // Controller-specific buttons (DualShock 4 vs DualSense)
         if #available(macOS 11.3, *) {
             if let dualsense = controller?.physicalInputProfile as? GCDualSenseGamepad {
+                // DualSense (PS5) specific buttons
+                // On DualSense: buttonOptions = left (Create), buttonMenu = right (Options)
+                if let optionsButton = gamepad.buttonOptions {
+                    setupButton(optionsButton, button: .create)  // Left button = Create
+                }
+                setupButton(gamepad.buttonMenu, button: .options)  // Right button = Options
                 setupButton(dualsense.touchpadButton, button: .touchpad)
+
+                // Mute button (if available - check if the API exposes it)
+                // Note: As of macOS 14, the mute button might not be exposed via GameController framework
+                // We'll handle it when Apple adds API support
+                print("PS4Controller: DualSense buttons configured (Create, Options, Touchpad)")
             } else if let dualshock = controller?.physicalInputProfile as? GCDualShockGamepad {
+                // DualShock 4 (PS4) specific buttons
+                // On DualShock 4: buttonOptions = left (Share), buttonMenu = right (Options)
+                if let optionsButton = gamepad.buttonOptions {
+                    setupButton(optionsButton, button: .share)  // Left button = Share
+                }
+                setupButton(gamepad.buttonMenu, button: .options)  // Right button = Options
                 setupButton(dualshock.touchpadButton, button: .touchpad)
+                print("PS4Controller: DualShock 4 buttons configured (Share, Options, Touchpad)")
+            } else {
+                // Generic controller - map buttons generically
+                if let optionsButton = gamepad.buttonOptions {
+                    setupButton(optionsButton, button: .share)
+                }
+                setupButton(gamepad.buttonMenu, button: .options)
             }
+        } else {
+            // Fallback for older macOS versions
+            if let optionsButton = gamepad.buttonOptions {
+                setupButton(optionsButton, button: .share)
+            }
+            setupButton(gamepad.buttonMenu, button: .options)
         }
 
         // Triggers (analog)
@@ -408,23 +544,32 @@ class PS4ControllerMonitor: ObservableObject {
 
     var connectionStatusDescription: String {
         if isConnected {
+            let controllerName = controllerType.shortName + " Controller"
+
             if batteryIsUnavailable {
-                return "PS4 Controller Connected - Battery: Unknown"
+                return "\(controllerName) Connected - Battery: Unknown"
             }
 
             if let level = batteryLevel {
                 let percentage = Int(level * 100)
+
+                // Special message for DualSense reporting 0%/Unknown (macOS limitation)
+                if percentage == 0 && batteryState == .unknown && controllerType == .dualSense {
+                    return "\(controllerName) Connected - Battery: Unavailable (macOS limitation)"
+                }
+
                 let stateText = batteryState == .charging ? " (Charging)" :
                                batteryState == .full ? " (Full)" : ""
-                return "PS4 Controller Connected - Battery: \(percentage)%\(stateText)"
+                return "\(controllerName) Connected - Battery: \(percentage)%\(stateText)"
             }
-            return "PS4 Controller Connected"
+            return "\(controllerName) Connected"
         }
-        return "No PS4 Controller - Press to view panel"
+        return "No Controller - Press to view panel"
     }
 
     deinit {
         batteryMonitorTimer?.invalidate()
+        hidBatteryCancellable?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 }

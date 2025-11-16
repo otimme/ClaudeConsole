@@ -110,9 +110,9 @@ Free space: 131k
 
 See `docs/guides/SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 
-## PS4 Controller Support
+## PlayStation Controller Support
 
-**DualShock 4 Integration**: Full PlayStation 4 controller support with customizable button-to-key mappings and visual feedback.
+**DualShock 4 & DualSense Integration**: Full PlayStation 4 (DualShock 4) and PlayStation 5 (DualSense) controller support with customizable button-to-key mappings and visual feedback.
 
 **Components:**
 - `PS4ControllerMonitor`: Monitors controller connection and input using GameController framework
@@ -123,7 +123,10 @@ See `docs/guides/SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 - `PS4ConfigurationView`: Settings panel for customizing button mappings
 
 **Features:**
-- **Complete Button Support**: All DualShock 4 buttons including face buttons (✕○□△), shoulders (L1/R1/L2/R2), D-pad, analog sticks (L3/R3), and center buttons (Options/Share/Touchpad)
+- **Dual Controller Support**: Automatically detects and supports both DualShock 4 (PS4) and DualSense (PS5) controllers
+- **Complete Button Support**: All buttons including face buttons (✕○□△), shoulders (L1/R1/L2/R2), D-pad, analog sticks (L3/R3), and center buttons
+  - **DualShock 4**: Options, Share, Touchpad, PS button
+  - **DualSense**: Options, Create (replaces Share), Touchpad, PS button, Mute button
 - **Visual Feedback**: Buttons light up with colored indicators when pressed, both in the controller panel and status bar
 - **Customizable Mappings**: Each button can be mapped to any key or key combination with modifiers (⌃⌥⇧⌘)
 - **Preset Configurations**: Built-in presets for Vim mode, Navigation mode, Terminal mode, or Custom
@@ -148,7 +151,13 @@ See `docs/guides/SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 **Default Mappings:**
 - Cross (✕) → Enter, Circle (○) → Escape, Square (□) → Space, Triangle (△) → Tab
 - D-Pad → Arrow keys, L1/R1 → Page Up/Down, L2/R2 → Home/End
-- Options → Ctrl+C, Share → Ctrl+Z, L3/R3 → Ctrl+A/E
+- Options → Ctrl+C, Share/Create → Ctrl+Z, L3/R3 → Ctrl+A/E
+- Mute (DualSense only) → Toggle Speech-to-Text
+
+**Controller Type Detection:**
+- Automatically identifies DualShock 4 vs DualSense via GameController framework
+- UI adapts to show correct button labels (Share vs Create)
+- Battery reporting varies by controller type (DualShock 4 often shows "Unknown" on macOS, DualSense may have better reporting)
 
 See `docs/guides/PS4_CONTROLLER_GUIDE.md` for detailed setup and usage instructions.
 

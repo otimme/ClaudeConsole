@@ -340,7 +340,7 @@ class UsageMonitor: ObservableObject {
             if bytesRead > 0 {
                 let data = Data(buffer[0..<bytesRead])
                 if let text = String(data: data, encoding: .utf8) {
-                    print("UsageMonitor: Received \(bytesRead) bytes: [\(text)]")
+                    // Silently accumulate output (removed verbose logging)
                     // Update buffer on serial queue to prevent data races
                     self.bufferQueue.async {
                         self.outputBuffer += text
@@ -395,13 +395,12 @@ class UsageMonitor: ObservableObject {
             }
             // Clear buffer before starting new fetch cycle
             bufferQueue.async {
-                print("UsageMonitor: Clearing buffer before fetch")
+                // Clear buffer before fetch (logging removed)
                 self.outputBuffer = ""
             }
         }
 
         attemptCount += 1
-        print("UsageMonitor: Sending /usage command (attempt \(attemptCount)/\(maxAttempts))")
 
         // Only send /usage command on first attempt
         // On subsequent attempts, just wait for the panel to finish loading

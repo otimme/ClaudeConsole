@@ -2,7 +2,8 @@
 //  PS4ControllerStatusBar.swift
 //  ClaudeConsole
 //
-//  Compact status bar showing PS4 controller button mappings
+//  Compact status bar showing PlayStation controller button mappings
+//  Supports both DualShock 4 (PS4) and DualSense (PS5) controllers
 //
 
 import SwiftUI
@@ -54,9 +55,16 @@ struct PS4ControllerStatusBar: View {
                     .frame(height: 20)
                     .padding(.horizontal, 4)
 
-                // Menu buttons group
-                ButtonGroup(title: "Menu", buttons: [.options, .share, .touchpad],
-                           monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
+                // Menu buttons group - changes based on controller type
+                if monitor.controllerType == .dualSense {
+                    // DualSense: Options, Create, Touchpad, Mute
+                    ButtonGroup(title: "Menu", buttons: [.options, .create, .touchpad, .mute],
+                               monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
+                } else {
+                    // DualShock 4: Options, Share, Touchpad
+                    ButtonGroup(title: "Menu", buttons: [.options, .share, .touchpad],
+                               monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
+                }
             }
             .padding(.horizontal, 8)
         }
@@ -186,14 +194,16 @@ struct CompactButtonView: View {
         case .r3: return "R3"
         case .options: return "OPT"
         case .share: return "SHR"
+        case .create: return "CRT"
         case .touchpad: return "PAD"
         case .psButton: return "PS"
+        case .mute: return "MUT"
         }
     }
 
     var buttonWidth: CGFloat {
         switch button {
-        case .options, .share, .touchpad:
+        case .options, .share, .create, .touchpad, .mute:
             return 38
         default:
             return 32
@@ -209,9 +219,10 @@ struct CompactButtonView: View {
         case .l1, .r1, .l2, .r2: return .orange
         case .dpadUp, .dpadDown, .dpadLeft, .dpadRight: return .gray
         case .l3, .r3: return .purple
-        case .options, .share: return .cyan
+        case .options, .share, .create: return .cyan
         case .touchpad: return .indigo
         case .psButton: return .blue
+        case .mute: return .teal
         }
     }
 
