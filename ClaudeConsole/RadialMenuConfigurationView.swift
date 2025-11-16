@@ -66,6 +66,7 @@ struct RadialMenuConfigurationView: View {
                     direction: direction,
                     onSave: { saveSegmentChanges() }
                 )
+                .id(direction) // Force view recreation when direction changes
             } else {
                 emptyStateView
             }
