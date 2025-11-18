@@ -841,15 +841,20 @@ struct ImportExportView: View {
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "radial-menu-profiles.json"
 
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                do {
-                    try jsonString.write(to: url, atomically: true, encoding: .utf8)
-                    alertMessage = "Profiles exported successfully"
-                    showAlert = true
-                } catch {
-                    alertMessage = "Failed to save file: \(error.localizedDescription)"
-                    showAlert = true
+        // Keep panel alive and ensure UI updates on main thread
+        panel.begin { [weak panel] response in
+            guard let strongPanel = panel else { return }
+
+            DispatchQueue.main.async {
+                if response == .OK, let url = strongPanel.url {
+                    do {
+                        try jsonString.write(to: url, atomically: true, encoding: .utf8)
+                        alertMessage = "Profiles exported successfully"
+                        showAlert = true
+                    } catch {
+                        alertMessage = "Failed to save file: \(error.localizedDescription)"
+                        showAlert = true
+                    }
                 }
             }
         }
@@ -860,20 +865,25 @@ struct ImportExportView: View {
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
 
-        panel.begin { response in
-            if response == .OK, let url = panel.urls.first {
-                do {
-                    let jsonString = try String(contentsOf: url, encoding: .utf8)
-                    if profileManager.importProfiles(from: jsonString) {
-                        alertMessage = "Profiles imported successfully"
-                        showAlert = true
-                    } else {
-                        alertMessage = "Failed to parse profile data"
+        // Keep panel alive and ensure UI updates on main thread
+        panel.begin { [weak panel] response in
+            guard let strongPanel = panel else { return }
+
+            DispatchQueue.main.async {
+                if response == .OK, let url = strongPanel.urls.first {
+                    do {
+                        let jsonString = try String(contentsOf: url, encoding: .utf8)
+                        if profileManager.importProfiles(from: jsonString) {
+                            alertMessage = "Profiles imported successfully"
+                            showAlert = true
+                        } else {
+                            alertMessage = "Failed to parse profile data"
+                            showAlert = true
+                        }
+                    } catch {
+                        alertMessage = "Failed to read file: \(error.localizedDescription)"
                         showAlert = true
                     }
-                } catch {
-                    alertMessage = "Failed to read file: \(error.localizedDescription)"
-                    showAlert = true
                 }
             }
         }

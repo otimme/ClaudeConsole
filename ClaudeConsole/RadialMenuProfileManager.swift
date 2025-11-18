@@ -98,12 +98,20 @@ class RadialMenuProfileManager: ObservableObject {
     // MARK: - Persistence
 
     private func saveProfiles() {
-        guard let data = try? JSONEncoder().encode(profiles) else { return }
-        UserDefaults.standard.set(data, forKey: profilesKey)
+        do {
+            let data = try JSONEncoder().encode(profiles)
+            UserDefaults.standard.set(data, forKey: profilesKey)
+            // Force synchronization for release builds
+            UserDefaults.standard.synchronize()
+        } catch {
+            print("RadialMenuProfileManager: Failed to save profiles: \(error)")
+        }
     }
 
     private func saveActiveProfile() {
         UserDefaults.standard.set(activeProfile.id.uuidString, forKey: activeProfileIDKey)
+        // Force synchronization for release builds
+        UserDefaults.standard.synchronize()
     }
 
     private static func loadProfilesFromUserDefaults() -> [RadialMenuProfile]? {
@@ -143,6 +151,9 @@ class RadialMenuProfileManager: ObservableObject {
         }
         profiles = importedProfiles
         activeProfile = importedProfiles.first ?? .defaultProfile
+        // Persist the imported profiles immediately
+        saveProfiles()
+        saveActiveProfile()
         return true
     }
 }
