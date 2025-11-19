@@ -28,7 +28,7 @@ class AppCommandExecutor: ObservableObject {
 
     // Published state for UI bindings
     @Published var showPS4Panel: Bool = false
-    @Published var showPS4StatusBar: Bool = true
+    @Published var showPS4StatusBar: Bool = false
 
     init() {}
 

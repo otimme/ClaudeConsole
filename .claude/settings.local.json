@@ -18,7 +18,11 @@
       "Bash(sips:*)",
       "Bash(iconutil:*)",
       "Bash(git push:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(tee:*)",
+      "Bash(defaults read:*)",
+      "Bash(chmod:*)",
+      "Bash(/tmp/fix_text_macros.sh)"
     ],
     "deny": [],
     "ask": []

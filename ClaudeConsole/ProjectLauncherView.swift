@@ -152,6 +152,16 @@ struct ProjectLauncherView: View {
             }
             return .ignored
         }
+        .onKeyPress(.upArrow) {
+            // Up arrow navigates up in the project list
+            navigateUp()
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            // Down arrow navigates down in the project list
+            navigateDown()
+            return .handled
+        }
         .onAppear {
             setupPS4Controller()
         }
@@ -168,9 +178,20 @@ struct ProjectLauncherView: View {
 
         // Temporarily override with launcher-specific behavior
         ps4Monitor.onButtonPressed = { [originalButtonHandler] button in
-            if button == .r2 {
+            switch button {
+            case .r2:
+                // R2 trigger launches the selected project
                 launchSelectedProject()
-            } else {
+            case .dpadUp:
+                // D-pad up navigates up in the project list
+                navigateUp()
+            case .dpadDown:
+                // D-pad down navigates down in the project list
+                navigateDown()
+            case .dpadLeft, .dpadRight:
+                // D-pad left/right could be used for page navigation in future
+                break
+            default:
                 // Pass through other buttons to original handler
                 originalButtonHandler?(button)
             }
