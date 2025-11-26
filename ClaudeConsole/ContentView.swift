@@ -9,6 +9,9 @@ import SwiftUI
 import SwiftTerm
 import GameController
 import Combine
+import os.log
+
+private let logger = Logger(subsystem: "com.claudeconsole", category: "ContentView")
 
 struct ContentView: View {
     @StateObject private var usageMonitor = UsageMonitor()
@@ -32,6 +35,7 @@ struct ContentView: View {
     private class SubscriptionManager {
         private let lock = NSLock()
         private var _cancellables = Set<AnyCancellable>()
+        private var _notificationObservers: [NSObjectProtocol] = []
 
         var cancellables: Set<AnyCancellable> {
             get {
@@ -52,10 +56,23 @@ struct ContentView: View {
             _cancellables.insert(cancellable)
         }
 
-        func removeAll() {
+        func addObserver(_ observer: NSObjectProtocol) {
             lock.lock()
             defer { lock.unlock() }
+            _notificationObservers.append(observer)
+        }
+
+        func removeAll() {
+            lock.lock()
+            let observers = _notificationObservers
+            _notificationObservers.removeAll()
             _cancellables.removeAll()
+            lock.unlock()
+
+            // Remove notification observers outside the lock
+            for observer in observers {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
     @State private var subscriptionManager = SubscriptionManager()
@@ -304,12 +321,45 @@ struct ContentView: View {
                     showPS4StatusBar = newValue
                 }
                 .store(in: &subscriptionManager.cancellables)
+
+            // Listen for app termination to cleanup sessions
+            // Store observer token to prevent memory leaks
+            let terminationObserver = NotificationCenter.default.addObserver(
+                forName: .appWillTerminate,
+                object: nil,
+                queue: .main
+            ) { [terminalController, usageMonitor] _ in
+                Self.performCleanup(terminal: terminalController, usageMonitor: usageMonitor)
+            }
+            subscriptionManager.addObserver(terminationObserver)
+        }
+        .onDisappear {
+            // Clean up all subscriptions and observers when view disappears
+            subscriptionManager.removeAll()
         }
         .onChange(of: terminalController) { _, newController in
             // FIX: Update AppCommandExecutor's terminal controller when it becomes available
             // Terminal controller is set asynchronously after view initialization via binding
             ps4Controller.appCommandExecutor.terminalController = newController
         }
+    }
+
+    static func performCleanup(terminal: LocalProcessTerminalView?, usageMonitor: UsageMonitor) {
+        logger.info("Cleaning up sessions...")
+
+        // Send exit command to terminal if Claude is likely running
+        // Note: This may fail if terminal is running a different program
+        if let terminal = terminal {
+            let exitCommand = "/exit \r"
+            if let data = exitCommand.data(using: .utf8) {
+                terminal.send(data: ArraySlice(data))
+            }
+        }
+
+        // Cleanup usage monitor
+        usageMonitor.cleanup()
+
+        logger.info("Session cleanup complete")
     }
 
     var batteryTooltip: String {

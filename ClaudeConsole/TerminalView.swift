@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftTerm
+import os.log
+
+private let logger = Logger(subsystem: "com.claudeconsole", category: "TerminalView")
 
 // Notification to signal Claude Code has started
 extension Notification.Name {
@@ -15,6 +18,9 @@ extension Notification.Name {
 
 // Custom terminal view that monitors output for claude command
 class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
+    // Track the child process PID for cleanup
+    private(set) var shellPID: pid_t?
+
     // Constants for buffer limits
     private static let maxOutputBufferSize = 2000  // Max chars for output buffer
     private static let maxPWDBufferSize = 5000     // Max chars for PWD buffer
@@ -70,6 +76,62 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
     deinit {
         removeEventMonitor()
+
+        // Unregister PID from tracker
+        if let pid = shellPID {
+            ProcessTracker.shared.unregisterProcess(pid)
+        }
+    }
+
+    // MARK: - Process Management
+
+    func captureShellPID() {
+        // SwiftTerm doesn't expose the spawned process PID directly.
+        // We find it by looking for zsh processes with our app as parent.
+        // This is more reliable than guessing based on timing.
+        let ourPID = getpid()
+
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self else { return }
+
+            // Use pgrep to find zsh processes with our app as parent
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+            task.arguments = ["-P", String(ourPID), "zsh"]
+
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = FileHandle.nullDevice
+
+            do {
+                try task.run()
+                task.waitUntilExit()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8) {
+                    let lines = output.components(separatedBy: .newlines)
+                    for line in lines {
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if let pid = pid_t(trimmed), pid > 0 {
+                            // Verify the process still exists before registering
+                            if kill(pid, 0) == 0 {
+                                DispatchQueue.main.async {
+                                    self.shellPID = pid
+                                    ProcessTracker.shared.registerProcess(pid)
+                                    logger.info("Registered shell PID: \(pid)")
+                                }
+                            } else {
+                                logger.warning("Shell PID \(pid) already exited before registration")
+                            }
+                            return
+                        }
+                    }
+                }
+                logger.debug("No child zsh process found for parent PID \(ourPID)")
+            } catch {
+                logger.error("Failed to capture shell PID: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Drag and Drop Support
@@ -393,6 +455,9 @@ struct TerminalView: NSViewRepresentable {
         // This will load .zshrc and give you full environment
         terminalView.startProcess(executable: "/bin/zsh", args: ["-l"])
 
+        // Capture the shell PID for process tracking
+        terminalView.captureShellPID()
+
         DispatchQueue.main.async {
             self.terminalController = terminalView
 
@@ -417,5 +482,15 @@ struct TerminalView: NSViewRepresentable {
             nsView.needsLayout = true
             nsView.layoutSubtreeIfNeeded()
         }
+    }
+
+    static func dismantleNSView(_ nsView: MonitoredLocalProcessTerminalView, coordinator: ()) {
+        // Send exit command to Claude if running (non-blocking)
+        // Note: This may not work if terminal is running something else
+        let exitCommand = "/exit \r"
+        if let data = exitCommand.data(using: .utf8) {
+            nsView.send(data: ArraySlice(data))
+        }
+        // Don't block - ProcessTracker will handle cleanup if needed
     }
 }

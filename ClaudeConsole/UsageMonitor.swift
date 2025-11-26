@@ -7,6 +7,9 @@
 
 import Foundation
 import Combine
+import os.log
+
+private let logger = Logger(subsystem: "com.claudeconsole", category: "UsageMonitor")
 
 enum UsageFetchStatus {
     case idle
@@ -103,7 +106,7 @@ class UsageMonitor: ObservableObject {
                 // Timeout occurred
                 task.terminate()
                 timedOut = true
-                print("UsageMonitor: Timeout finding claude executable")
+                logger.warning("Timeout finding claude executable")
             }
 
             if !timedOut && task.terminationStatus == 0 {
@@ -112,7 +115,7 @@ class UsageMonitor: ObservableObject {
                    !path.isEmpty,
                    !path.contains("not found") {
                     self.claudePath = path
-                    print("UsageMonitor: Found claude at \(path)")
+                    logger.info("Found claude at \(path)")
                     return
                 }
             }
@@ -129,7 +132,7 @@ class UsageMonitor: ObservableObject {
                 }
             }
         } catch {
-            print("UsageMonitor: Failed to find claude: \(error)")
+            logger.error("Failed to find claude: \(error.localizedDescription)")
         }
     }
 
@@ -150,7 +153,7 @@ class UsageMonitor: ObservableObject {
         }
 
         guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
-            print("UsageMonitor: Failed to create PTY")
+            logger.error("Failed to create PTY")
             return
         }
 
@@ -165,7 +168,7 @@ class UsageMonitor: ObservableObject {
         posix_spawn_file_actions_addclose(&fileActions, slaveFD)
 
         guard let claudePath = self.claudePath else {
-            print("UsageMonitor: Claude path not available")
+            logger.warning("Claude path not available")
             return
         }
 
@@ -175,11 +178,11 @@ class UsageMonitor: ObservableObject {
         let nodePath = nodeURL.path
 
         guard FileManager.default.fileExists(atPath: nodePath) else {
-            print("UsageMonitor: Node not found at \(nodePath)")
+            logger.error("Node not found at \(nodePath)")
             return
         }
 
-        print("UsageMonitor: Using node at \(nodePath)")
+        logger.info("Using node at \(nodePath)")
 
         var pid: pid_t = 0
 
@@ -214,7 +217,7 @@ class UsageMonitor: ObservableObject {
                 // Timeout occurred
                 pathTask.terminate()
                 timedOut = true
-                print("UsageMonitor: Timeout getting PATH, using default")
+                logger.warning("Timeout getting PATH, using default")
             }
 
             if !timedOut {
@@ -238,7 +241,7 @@ class UsageMonitor: ObservableObject {
             nil
         ]
 
-        print("UsageMonitor: Spawning node with claude script")
+        logger.info("Spawning node with claude script")
 
         let result = posix_spawn(&pid, nodePath, &fileActions, nil, args, env)
 
@@ -250,6 +253,9 @@ class UsageMonitor: ObservableObject {
         if result == 0 {
             // Parent process - success
             self.childPID = pid
+
+            // Register with process tracker
+            ProcessTracker.shared.registerProcess(pid)
 
             // We're keeping masterFD open for reading
             shouldCloseMasterFD = false
@@ -265,7 +271,7 @@ class UsageMonitor: ObservableObject {
                 self.startPolling()
             }
         } else {
-            print("UsageMonitor: posix_spawn failed with error: \(result)")
+            logger.error("posix_spawn failed with error: \(result)")
             // Defer block will clean up both FDs
         }
     }
@@ -281,7 +287,7 @@ class UsageMonitor: ObservableObject {
 
         source.setEventHandler { [weak self] in
             guard let self = self else { return }
-            print("UsageMonitor: Claude process terminated unexpectedly")
+            logger.warning("Claude process terminated unexpectedly")
             self.handleProcessTermination()
         }
 
@@ -297,6 +303,11 @@ class UsageMonitor: ObservableObject {
         processMonitorSource = nil
         pollTimer?.invalidate()
         pollTimer = nil
+
+        // Unregister from process tracker
+        if childPID > 0 {
+            ProcessTracker.shared.unregisterProcess(childPID)
+        }
 
         // Reset state
         childPID = -1
@@ -315,7 +326,7 @@ class UsageMonitor: ObservableObject {
         // Optionally: attempt restart after a delay
         DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self = self else { return }
-            print("UsageMonitor: Attempting to restart monitoring...")
+            logger.info("Attempting to restart monitoring...")
             if self.claudePath != nil {
                 self.startBackgroundSession()
 
@@ -373,7 +384,7 @@ class UsageMonitor: ObservableObject {
 
     private func requestUsageUpdate() {
         guard masterFD >= 0 else {
-            print("UsageMonitor: masterFD is invalid")
+            logger.warning("masterFD is invalid")
             DispatchQueue.main.async {
                 self.fetchStatus = .failed
             }
@@ -381,7 +392,7 @@ class UsageMonitor: ObservableObject {
         }
 
         guard attemptCount < maxAttempts else {
-            print("UsageMonitor: Max attempts reached")
+            logger.warning("Max attempts reached")
             DispatchQueue.main.async {
                 self.fetchStatus = .failed
             }
@@ -431,9 +442,9 @@ class UsageMonitor: ObservableObject {
                 }
             }
 
-            print("UsageMonitor: Sent '/usage ' + Enter")
+            logger.debug("Sent '/usage ' + Enter")
         } else {
-            print("UsageMonitor: Waiting for panel to load (not sending command again)")
+            logger.debug("Waiting for panel to load (not sending command again)")
         }
 
         // Schedule next attempt if we haven't reached max
@@ -528,22 +539,13 @@ class UsageMonitor: ObservableObject {
 
         // Only update if we found valid data
         if newStats.dailyTokensUsed > 0 || newStats.weeklyTokensUsed > 0 {
-            print("UsageMonitor: Parsed stats - Daily: \(newStats.dailyTokensUsed)%, Weekly: \(newStats.weeklyTokensUsed)%")
+            logger.info("Parsed stats - Daily: \(newStats.dailyTokensUsed)%, Weekly: \(newStats.weeklyTokensUsed)%")
             DispatchQueue.main.async {
                 self.usageStats = newStats
                 self.fetchStatus = .success
             }
         } else {
-            print("UsageMonitor: No valid stats found in buffer")
-            print("UsageMonitor: Buffer contents: [\(cleanBuffer)]")
-            print("UsageMonitor: Buffer length: \(cleanBuffer.count) chars")
-
-            // Print first few lines for debugging
-            let lines = cleanBuffer.components(separatedBy: "\n")
-            print("UsageMonitor: Total lines: \(lines.count)")
-            for (index, line) in lines.prefix(20).enumerated() {
-                print("UsageMonitor: Line \(index): [\(line)]")
-            }
+            logger.debug("No valid stats found in buffer (\(cleanBuffer.count) chars)")
             // Only set failed if we've reached max attempts
             if self.attemptCount >= self.maxAttempts {
                 DispatchQueue.main.async {
@@ -558,12 +560,58 @@ class UsageMonitor: ObservableObject {
         }
     }
 
-    deinit {
+    func cleanup() {
+        logger.info("Cleaning up usage monitor session")
+
+        // 1. Stop polling first
         pollTimer?.invalidate()
-        outputSource?.cancel()
-        processMonitorSource?.cancel()
-        if childPID > 0 {
-            kill(childPID, SIGTERM)
+        pollTimer = nil
+
+        // 2. Cancel parse timer
+        parseTimer?.cancel()
+        parseTimer = nil
+
+        // 3. Send exit command (non-blocking, best effort)
+        if masterFD >= 0 {
+            let exitCommand = "/exit \r"
+            if let data = exitCommand.data(using: .utf8) {
+                _ = data.withUnsafeBytes { ptr in
+                    write(masterFD, ptr.baseAddress, data.count)
+                }
+            }
         }
+
+        // 4. Cancel dispatch sources (stops reading)
+        outputSource?.cancel()
+        outputSource = nil
+        processMonitorSource?.cancel()
+        processMonitorSource = nil
+
+        // 5. Terminate the process if still running
+        let pid = childPID
+        if pid > 0 {
+            // Verify process still exists before killing
+            if kill(pid, 0) == 0 {
+                kill(pid, SIGTERM)
+                logger.info("Sent SIGTERM to Claude process \(pid)")
+            }
+            ProcessTracker.shared.unregisterProcess(pid)
+            childPID = -1
+        }
+
+        // 6. Close file descriptor (if not already closed by outputSource cancel handler)
+        let fd = masterFD
+        if fd >= 0 {
+            masterFD = -1
+            // Note: outputSource cancel handler may have already closed this
+            // close() on an already-closed FD is safe (returns EBADF)
+            close(fd)
+        }
+
+        logger.info("Usage monitor cleanup complete")
+    }
+
+    deinit {
+        cleanup()
     }
 }
