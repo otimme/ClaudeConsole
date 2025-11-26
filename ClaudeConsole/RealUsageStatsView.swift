@@ -66,23 +66,23 @@ struct RealUsageStatsView: View {
             Divider()
                 .frame(height: 30)
 
-            // Weekly Opus Usage
+            // Weekly Sonnet Usage
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Weekly (Opus)")
+                    Text("Weekly (Sonnet)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text("\(usageMonitor.usageStats.opusTokensUsed)%")
+                    Text("\(usageMonitor.usageStats.sonnetTokensUsed)%")
                         .font(.caption)
-                        .foregroundColor(colorForPercentage(Double(usageMonitor.usageStats.opusTokensUsed)))
+                        .foregroundColor(colorForPercentage(Double(usageMonitor.usageStats.sonnetTokensUsed)))
                 }
                 .frame(width: 150)
 
-                ProgressView(value: Double(usageMonitor.usageStats.opusTokensUsed), total: 100)
-                    .tint(colorForPercentage(Double(usageMonitor.usageStats.opusTokensUsed)))
+                ProgressView(value: Double(usageMonitor.usageStats.sonnetTokensUsed), total: 100)
+                    .tint(colorForPercentage(Double(usageMonitor.usageStats.sonnetTokensUsed)))
 
-                Text("Opus only")
+                Text("Sonnet only")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

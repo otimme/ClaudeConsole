@@ -24,8 +24,8 @@ struct UsageStats: Codable {
     var dailyTokensLimit: Int = 0
     var weeklyTokensUsed: Int = 0
     var weeklyTokensLimit: Int = 0
-    var opusTokensUsed: Int = 0
-    var opusTokensLimit: Int = 100
+    var sonnetTokensUsed: Int = 0
+    var sonnetTokensLimit: Int = 100
 
     var dailyPercentage: Double {
         guard dailyTokensLimit > 0 else { return 0 }
@@ -37,9 +37,9 @@ struct UsageStats: Codable {
         return Double(weeklyTokensUsed) / Double(weeklyTokensLimit) * 100
     }
 
-    var opusPercentage: Double {
-        guard opusTokensLimit > 0 else { return 0 }
-        return Double(opusTokensUsed) / Double(opusTokensLimit) * 100
+    var sonnetPercentage: Double {
+        guard sonnetTokensLimit > 0 else { return 0 }
+        return Double(sonnetTokensUsed) / Double(sonnetTokensLimit) * 100
     }
 }
 
@@ -471,12 +471,16 @@ class UsageMonitor: ObservableObject {
         // Parse the output buffer for usage statistics
         // Format:
         // Current session
-        //  ██▌                                                5% used
-        //  Resets 8pm (Europe/Amsterdam)
+        //  ███                                                6% used
+        //  Resets 12:59pm (Europe/Amsterdam)
         //
         // Current week (all models)
-        //  █████████▌                                         19% used
-        //  Resets Nov 5, 11am (Europe/Amsterdam)
+        //  ██                                                 4% used
+        //  Resets Dec 2, 8:59am (Europe/Amsterdam)
+        //
+        // Current week (Sonnet only)
+        //  ███                                                6% used
+        //  Resets Dec 2, 8:59am (Europe/Amsterdam)
 
         // Clean ANSI escape codes from buffer - wrap in do-catch to handle any string issues
         var cleanBuffer: String
@@ -494,7 +498,7 @@ class UsageMonitor: ObservableObject {
 
         var isSessionSection = false
         var isWeeklySection = false
-        var isOpusSection = false
+        var isSonnetSection = false
 
         for i in 0..<lines.count {
             let line = lines[i].trimmingCharacters(in: .whitespaces)
@@ -503,17 +507,18 @@ class UsageMonitor: ObservableObject {
             if line.contains("Current session") {
                 isSessionSection = true
                 isWeeklySection = false
-                isOpusSection = false
+                isSonnetSection = false
                 continue
             } else if line.contains("Current week (all models)") {
                 isSessionSection = false
                 isWeeklySection = true
-                isOpusSection = false
+                isSonnetSection = false
                 continue
-            } else if line.contains("Current week (Opus)") {
+            } else if line.contains("Current week (Sonnet") {
+                // Matches "Current week (Sonnet only)" or similar
                 isSessionSection = false
                 isWeeklySection = false
-                isOpusSection = true
+                isSonnetSection = true
                 continue
             }
 
@@ -529,9 +534,9 @@ class UsageMonitor: ObservableObject {
                     } else if isWeeklySection {
                         newStats.weeklyTokensUsed = percentage
                         newStats.weeklyTokensLimit = 100
-                    } else if isOpusSection {
-                        newStats.opusTokensUsed = percentage
-                        newStats.opusTokensLimit = 100
+                    } else if isSonnetSection {
+                        newStats.sonnetTokensUsed = percentage
+                        newStats.sonnetTokensLimit = 100
                     }
                 }
             }
