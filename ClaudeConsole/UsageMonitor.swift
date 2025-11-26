@@ -351,23 +351,20 @@ class UsageMonitor: ObservableObject {
             if bytesRead > 0 {
                 let data = Data(buffer[0..<bytesRead])
                 if let text = String(data: data, encoding: .utf8) {
-                    // Silently accumulate output (removed verbose logging)
                     // Update buffer on serial queue to prevent data races
                     self.bufferQueue.async {
                         self.outputBuffer += text
 
-                        // Cancel any pending parse timer
-                        self.parseTimer?.cancel()
-
-                        // Schedule parse after output settles (8 second delay to allow Settings panel API to load)
-                        let workItem = DispatchWorkItem { [weak self] in
-                            guard let self = self else { return }
-                            self.bufferQueue.async {
-                                self.parseUsageOutput()
-                            }
+                        // Check if buffer contains usage data - parse immediately when found
+                        // The usage panel keeps sending updates, so we can't wait for it to "settle"
+                        if self.outputBuffer.contains("% used") && self.outputBuffer.contains("Current session") {
+                            self.parseUsageOutput()
                         }
-                        self.parseTimer = workItem
-                        DispatchQueue.global().asyncAfter(deadline: .now() + 8.0, execute: workItem)
+
+                        // Limit buffer size to prevent memory issues
+                        if self.outputBuffer.count > 50000 {
+                            self.outputBuffer = String(self.outputBuffer.suffix(20000))
+                        }
                     }
                 }
             }
