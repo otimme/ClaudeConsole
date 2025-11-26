@@ -59,6 +59,7 @@ class UsageMonitor: ObservableObject {
     private var attemptCount = 0
     private let maxAttempts = 3
     private var parseTimer: DispatchWorkItem?
+    private var bufferCheckWorkItem: DispatchWorkItem?
 
     private var claudePath: String?
 
@@ -303,6 +304,8 @@ class UsageMonitor: ObservableObject {
         processMonitorSource = nil
         pollTimer?.invalidate()
         pollTimer = nil
+        bufferCheckWorkItem?.cancel()
+        bufferCheckWorkItem = nil
 
         // Unregister from process tracker
         if childPID > 0 {
@@ -355,16 +358,24 @@ class UsageMonitor: ObservableObject {
                     self.bufferQueue.async {
                         self.outputBuffer += text
 
-                        // Check if buffer contains usage data - parse immediately when found
-                        // The usage panel keeps sending updates, so we can't wait for it to "settle"
-                        if self.outputBuffer.contains("% used") && self.outputBuffer.contains("Current session") {
-                            self.parseUsageOutput()
-                        }
-
                         // Limit buffer size to prevent memory issues
                         if self.outputBuffer.count > 50000 {
                             self.outputBuffer = String(self.outputBuffer.suffix(20000))
                         }
+
+                        // Debounce the expensive contains() checks
+                        // Cancel any pending check and schedule a new one
+                        self.bufferCheckWorkItem?.cancel()
+                        let workItem = DispatchWorkItem { [weak self] in
+                            guard let self = self else { return }
+                            // Check if buffer contains usage data after output settles
+                            if self.outputBuffer.contains("% used") && self.outputBuffer.contains("Current session") {
+                                self.parseUsageOutput()
+                            }
+                        }
+                        self.bufferCheckWorkItem = workItem
+                        // Wait 300ms after last output before checking
+                        self.bufferQueue.asyncAfter(deadline: .now() + 0.3, execute: workItem)
                     }
                 }
             }
@@ -569,9 +580,11 @@ class UsageMonitor: ObservableObject {
         pollTimer?.invalidate()
         pollTimer = nil
 
-        // 2. Cancel parse timer
+        // 2. Cancel parse timer and buffer check work item
         parseTimer?.cancel()
         parseTimer = nil
+        bufferCheckWorkItem?.cancel()
+        bufferCheckWorkItem = nil
 
         // 3. Send exit command (non-blocking, best effort)
         if masterFD >= 0 {
