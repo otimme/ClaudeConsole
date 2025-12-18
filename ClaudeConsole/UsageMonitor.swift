@@ -465,8 +465,8 @@ class UsageMonitor: ObservableObject {
     }
 
     private func startPolling() {
-        // Poll every 60 seconds
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+        // Poll every 5 minutes
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             // Reset attempt count for new polling cycle
             self.attemptCount = 0
@@ -511,26 +511,23 @@ class UsageMonitor: ObservableObject {
         for i in 0..<lines.count {
             let line = lines[i].trimmingCharacters(in: .whitespaces)
 
-            // Detect sections
+            // Detect sections (but don't skip - percentage might be on same line)
             if line.contains("Current session") {
                 isSessionSection = true
                 isWeeklySection = false
                 isSonnetSection = false
-                continue
             } else if line.contains("Current week (all models)") {
                 isSessionSection = false
                 isWeeklySection = true
                 isSonnetSection = false
-                continue
             } else if line.contains("Current week (Sonnet") {
                 // Matches "Current week (Sonnet only)" or similar
                 isSessionSection = false
                 isWeeklySection = false
                 isSonnetSection = true
-                continue
             }
 
-            // Parse percentage from lines like "5% used" or "19% used"
+            // Parse percentage from lines like "5% used", "19% used", or "64%used" (no space)
             if let match = line.range(of: #"(\d+)%\s*used"#, options: .regularExpression) {
                 let matchedText = String(line[match])
                 let percentStr = matchedText.filter { $0.isNumber }
