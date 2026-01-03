@@ -53,19 +53,48 @@ class SpeechToTextCoordinator: ObservableObject {
     // MARK: - State Observers
 
     private func setupStateObservers() {
-        // Mirror shared audio recorder's recording state
+        // Mirror shared audio recorder's recording state - only for focused window
         shared.audioRecorder.$isRecording
             .receive(on: DispatchQueue.main)
             .sink { [weak self] recording in
-                self?.isRecording = recording
+                guard let self = self else { return }
+                // Only show recording indicator in the focused window
+                if self.shared.focusedWindowID == self.windowID {
+                    self.isRecording = recording
+                } else {
+                    self.isRecording = false
+                }
             }
             .store(in: &cancellables)
 
-        // Mirror shared speech recognition state
+        // Mirror shared speech recognition state - only for focused window
         shared.speechRecognition.$isTranscribing
             .receive(on: DispatchQueue.main)
             .sink { [weak self] transcribing in
-                self?.isTranscribing = transcribing
+                guard let self = self else { return }
+                // Only show transcribing indicator in the focused window
+                if self.shared.focusedWindowID == self.windowID {
+                    self.isTranscribing = transcribing
+                } else {
+                    self.isTranscribing = false
+                }
+            }
+            .store(in: &cancellables)
+
+        // Also update when focus changes
+        shared.$focusedWindowID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] focusedID in
+                guard let self = self else { return }
+                if focusedID == self.windowID {
+                    // This window became focused - sync with current state
+                    self.isRecording = self.shared.audioRecorder.isRecording
+                    self.isTranscribing = self.shared.speechRecognition.isTranscribing
+                } else {
+                    // This window lost focus - hide indicators
+                    self.isRecording = false
+                    self.isTranscribing = false
+                }
             }
             .store(in: &cancellables)
 
