@@ -10,7 +10,6 @@ import AppKit
 
 struct PS4EnhancedConfigView: View {
     @ObservedObject var mapping: PS4ButtonMapping
-    @ObservedObject var controller: PS4ControllerController
     @Environment(\.dismiss) var dismiss
 
     @State private var selectedButton: PS4Button?
@@ -946,7 +945,7 @@ struct PresetLibraryView: View {
                         icon: "terminal",
                         color: .blue
                     ) {
-                        controller.applyPreset(.terminal)
+                        mapping.applyPreset(.terminal)
                     }
 
                     PresetSetCard(
@@ -955,7 +954,7 @@ struct PresetLibraryView: View {
                         icon: "keyboard",
                         color: .purple
                     ) {
-                        controller.applyPreset(.vim)
+                        mapping.applyPreset(.vim)
                     }
 
                     PresetSetCard(

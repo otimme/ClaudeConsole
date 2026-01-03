@@ -414,4 +414,71 @@ class PS4ButtonMapping: ObservableObject, Codable {
             return nil
         }
     }
+
+    // MARK: - Presets
+
+    /// Apply a preset configuration
+    func applyPreset(_ preset: ControllerPreset) {
+        switch preset {
+        case .vim:
+            applyVimPreset()
+        case .navigation:
+            applyNavigationPreset()
+        case .terminal:
+            applyTerminalPreset()
+        case .custom:
+            // Keep current custom configuration
+            break
+        }
+    }
+
+    private func applyVimPreset() {
+        // Vim-friendly mappings
+        setMapping(for: .dpadUp, action: .keyCommand(KeyCommand(key: "k", modifiers: [])))
+        setMapping(for: .dpadDown, action: .keyCommand(KeyCommand(key: "j", modifiers: [])))
+        setMapping(for: .dpadLeft, action: .keyCommand(KeyCommand(key: "h", modifiers: [])))
+        setMapping(for: .dpadRight, action: .keyCommand(KeyCommand(key: "l", modifiers: [])))
+        setMapping(for: .cross, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])))
+        setMapping(for: .circle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])))
+        setMapping(for: .square, action: .keyCommand(KeyCommand(key: "i", modifiers: [])))  // Insert mode
+        setMapping(for: .triangle, action: .keyCommand(KeyCommand(key: "v", modifiers: [])))  // Visual mode
+        setMapping(for: .l1, action: .keyCommand(KeyCommand(key: "u", modifiers: .control)))  // Page up
+        setMapping(for: .r1, action: .keyCommand(KeyCommand(key: "d", modifiers: .control)))  // Page down
+        setMapping(for: .options, action: .keyCommand(KeyCommand(key: "c", modifiers: .control)))
+        setMapping(for: .share, action: .keyCommand(KeyCommand(key: "z", modifiers: .control)))
+    }
+
+    private func applyNavigationPreset() {
+        // Navigation-focused mappings
+        setMapping(for: .dpadUp, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: [])))
+        setMapping(for: .dpadDown, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: [])))
+        setMapping(for: .dpadLeft, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: [])))
+        setMapping(for: .dpadRight, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: [])))
+        setMapping(for: .cross, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])))
+        setMapping(for: .circle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])))
+        setMapping(for: .square, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.space.rawValue, modifiers: [])))
+        setMapping(for: .triangle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: [])))
+        setMapping(for: .l1, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: [])))
+        setMapping(for: .r1, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: [])))
+        setMapping(for: .l2, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.home.rawValue, modifiers: [])))
+        setMapping(for: .r2, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.end.rawValue, modifiers: [])))
+    }
+
+    private func applyTerminalPreset() {
+        // Terminal-friendly mappings (default)
+        setMapping(for: .dpadUp, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.upArrow.rawValue, modifiers: [])))
+        setMapping(for: .dpadDown, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.downArrow.rawValue, modifiers: [])))
+        setMapping(for: .dpadLeft, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.leftArrow.rawValue, modifiers: [])))
+        setMapping(for: .dpadRight, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.rightArrow.rawValue, modifiers: [])))
+        setMapping(for: .cross, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.enter.rawValue, modifiers: [])))
+        setMapping(for: .circle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.escape.rawValue, modifiers: [])))
+        setMapping(for: .square, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.space.rawValue, modifiers: [])))
+        setMapping(for: .triangle, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.tab.rawValue, modifiers: [])))
+        setMapping(for: .l1, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageUp.rawValue, modifiers: [])))
+        setMapping(for: .r1, action: .keyCommand(KeyCommand(key: KeyCommand.SpecialKey.pageDown.rawValue, modifiers: [])))
+        setMapping(for: .options, action: .keyCommand(KeyCommand(key: "c", modifiers: .control)))
+        setMapping(for: .share, action: .keyCommand(KeyCommand(key: "z", modifiers: .control)))
+        setMapping(for: .l3, action: .keyCommand(KeyCommand(key: "a", modifiers: .control)))  // Beginning of line
+        setMapping(for: .r3, action: .keyCommand(KeyCommand(key: "e", modifiers: .control)))  // End of line
+    }
 }

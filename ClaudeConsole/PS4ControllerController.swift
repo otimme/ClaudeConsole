@@ -245,7 +245,7 @@ class PS4ControllerController: ObservableObject {
 
         // FIX: Validate speech controller is ready before attempting to start
         // Previous implementation had no validation, leading to silent failures
-        guard let speech = appCommandExecutor.speechController, speech.isReady else {
+        guard let speech = appCommandExecutor.speechCoordinator, speech.isReady else {
             os_log("Cannot start push-to-talk: speech controller not ready", log: .default, type: .error)
             showConnectionNotification(connected: false) // User feedback via notification
             return
@@ -265,7 +265,7 @@ class PS4ControllerController: ObservableObject {
 
             // If still in recording state but not actually recording, reset
             if case .recording = self.pushToTalkState,
-               let speech = self.appCommandExecutor.speechController,
+               let speech = self.appCommandExecutor.speechCoordinator,
                !speech.isRecording {
                 os_log("Push-to-talk failed to start recording - resetting state", log: .default, type: .error)
                 self.pushToTalkState = .idle
@@ -286,7 +286,7 @@ class PS4ControllerController: ObservableObject {
 
         // FIX: Call stopRecordingViaController() directly instead of going through executor
         // This ensures we stop recording immediately without extra indirection
-        if let speech = appCommandExecutor.speechController {
+        if let speech = appCommandExecutor.speechCoordinator {
             speech.stopRecordingViaController()
         }
 
@@ -305,7 +305,7 @@ class PS4ControllerController: ObservableObject {
         // Cancel any existing subscription first to prevent accumulation
         transcriptionCancellable?.cancel()
 
-        if let speech = appCommandExecutor.speechController {
+        if let speech = appCommandExecutor.speechCoordinator {
             transcriptionCancellable = speech.$isTranscribing
                 .receive(on: DispatchQueue.main)
                 .filter { !$0 } // Wait for transcription to finish
@@ -325,7 +325,7 @@ class PS4ControllerController: ObservableObject {
         // - State inconsistency
         if case .recording = pushToTalkState {
             os_log("Controller disconnected during push-to-talk - stopping recording", log: .default, type: .info)
-            if let speech = appCommandExecutor.speechController {
+            if let speech = appCommandExecutor.speechCoordinator {
                 speech.stopRecordingViaController()
             }
         }
@@ -783,7 +783,7 @@ class PS4ControllerController: ObservableObject {
         // Critical for battery life and privacy
         if case .recording = pushToTalkState {
             os_log("Controller deallocating during push-to-talk - stopping recording", log: .default, type: .info)
-            if let speech = appCommandExecutor.speechController {
+            if let speech = appCommandExecutor.speechCoordinator {
                 speech.stopRecordingViaController()
             }
         }
