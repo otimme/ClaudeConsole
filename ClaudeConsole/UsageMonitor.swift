@@ -223,20 +223,9 @@ class UsageMonitor: ObservableObject {
 
         // Only send /usage command on first attempt
         if attemptCount == 1 {
-            // First, send Escape to clear any existing input
-            session.write("\u{1B}")
-
-            usleep(100000) // 100ms delay
-
-            // Type: /usage + space
-            session.write("/usage ")
-
-            usleep(200000) // 200ms delay to let autocomplete settle
-
-            // Send Enter key
-            session.write("\r")
-
-            logger.debug("Sent '/usage ' + Enter")
+            // Send command sequence with non-blocking delays
+            // Using DispatchQueue.main.asyncAfter instead of usleep to avoid blocking the main thread
+            sendUsageCommandSequence(to: session)
         } else {
             logger.debug("Waiting for panel to load (not sending command again)")
         }
@@ -245,6 +234,29 @@ class UsageMonitor: ObservableObject {
         if attemptCount < maxAttempts {
             DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) { [weak self] in
                 self?.requestUsageUpdate()
+            }
+        }
+    }
+
+    /// Send the /usage command sequence with non-blocking delays
+    private func sendUsageCommandSequence(to session: PTYSession) {
+        // First, send Escape to clear any existing input
+        session.write("\u{1B}")
+
+        // 100ms delay before typing command
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak session] in
+            guard let session = session, session.state.isRunning else { return }
+
+            // Type: /usage + space
+            session.write("/usage ")
+
+            // 200ms delay to let autocomplete settle
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak session] in
+                guard let session = session, session.state.isRunning else { return }
+
+                // Send Enter key
+                session.write("\r")
+                logger.debug("Sent '/usage ' + Enter")
             }
         }
     }

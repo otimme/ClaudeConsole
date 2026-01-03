@@ -102,8 +102,11 @@ class ContextMonitor: ObservableObject {
     func requestContextUpdate() {
         guard let terminal = terminalController else { return }
 
-        isCapturingContext = true
-        outputBuffer = ""
+        // Reset state atomically to prevent race conditions
+        bufferLock.lock()
+        _isCapturingContext = true
+        _outputBuffer = ""
+        bufferLock.unlock()
 
         // Send /context + space to avoid autocomplete, then Enter
         let command = "/context "
@@ -222,25 +225,34 @@ class ContextMonitor: ObservableObject {
     }
 
     deinit {
-        // Timer must be invalidated on the same thread it was created (main thread)
-        // Since we create timers in handleTerminalOutput which runs on main,
-        // we need to ensure cleanup happens on main thread
-        if Thread.isMainThread {
-            captureTimer?.invalidate()
-            captureTimer = nil
-        } else {
-            // Capture reference before async to avoid accessing self after dealloc starts
-            let timer = captureTimer
-            DispatchQueue.main.sync {
-                timer?.invalidate()
-            }
-        }
+        // Capture all references before async to avoid accessing self after dealloc
+        // Using async instead of sync to avoid potential deadlock if main thread
+        // is waiting for this object to be deallocated
+        let timer = captureTimer
+        let outputObserver = terminalOutputObserver
+        let controllerObserver = terminalControllerObserver
 
-        if let observer = terminalOutputObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = terminalControllerObserver {
-            NotificationCenter.default.removeObserver(observer)
+        // Timer invalidation and observer removal must happen on main thread
+        // Use async to avoid deadlock - timer might fire once more but that's safe
+        // since it uses weak self
+        if Thread.isMainThread {
+            timer?.invalidate()
+            if let obs = outputObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = controllerObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+        } else {
+            DispatchQueue.main.async {
+                timer?.invalidate()
+                if let obs = outputObserver {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+                if let obs = controllerObserver {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+            }
         }
     }
 }

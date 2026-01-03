@@ -279,19 +279,9 @@ final class PTYSession {
             self.handleOutput(text)
         }
 
-        source.setCancelHandler { [weak self] in
-            guard let self = self else { return }
-            // Only close if we still own this FD
-            self.stateLock.lock()
-            if case .running(_, let fd) = self._state, fd == masterFD {
-                // FD will be closed during cleanup
-            } else if case .terminating = self._state {
-                // FD will be closed during cleanup
-            } else {
-                // Safe to close here
-                close(masterFD)
-            }
-            self.stateLock.unlock()
+        source.setCancelHandler {
+            // FD lifecycle is managed exclusively by cleanupSync() to avoid double-close.
+            // Do not close the FD here - cleanupSync will handle it.
         }
 
         stateLock.lock()
