@@ -91,23 +91,33 @@ struct ProjectLauncherView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(controller.filteredProjects) { project in
-                            ProjectRow(
-                                project: project,
-                                isSelected: controller.selectedProject?.id == project.id
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                // Clicking a project launches it immediately
-                                controller.selectProject(project)
-                                onProjectSelected(project)
-                                dismiss()
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(controller.filteredProjects) { project in
+                                ProjectRow(
+                                    project: project,
+                                    isSelected: controller.selectedProject?.id == project.id
+                                )
+                                .id(project.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    // Clicking a project launches it immediately
+                                    controller.selectProject(project)
+                                    onProjectSelected(project)
+                                    dismiss()
+                                }
+                            }
+                        }
+                        .padding()
+                    }
+                    .onChange(of: controller.selectedProject?.id) { _, newId in
+                        if let id = newId {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(id, anchor: .center)
                             }
                         }
                     }
-                    .padding()
                 }
             }
 
