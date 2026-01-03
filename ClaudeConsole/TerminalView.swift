@@ -25,23 +25,62 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     private static let maxOutputBufferSize = 2000  // Max chars for output buffer
     private static let maxPWDBufferSize = 5000     // Max chars for PWD buffer
 
-    private var outputBuffer = "" {
-        didSet {
+    // MARK: - Thread-Safe Buffer Access
+    // All buffer properties are protected by bufferLock to prevent race conditions
+    // in the dataReceived callback which can be called from multiple threads
+    private let bufferLock = NSLock()
+
+    // Backing storage (only access while holding bufferLock)
+    private var _outputBuffer = ""
+    private var _isPWDCapture = false
+    private var _pwdBuffer = ""
+
+    // Thread-safe accessors
+    private var outputBuffer: String {
+        get {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            return _outputBuffer
+        }
+        set {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            _outputBuffer = newValue
             // Automatically trim buffer if it exceeds limit
-            if outputBuffer.count > Self.maxOutputBufferSize {
-                outputBuffer = String(outputBuffer.suffix(Self.maxOutputBufferSize))
+            if _outputBuffer.count > Self.maxOutputBufferSize {
+                _outputBuffer = String(_outputBuffer.suffix(Self.maxOutputBufferSize))
             }
         }
     }
 
-    private var isPWDCapture = false
-    private var pwdBuffer = "" {
-        didSet {
+    private var isPWDCapture: Bool {
+        get {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            return _isPWDCapture
+        }
+        set {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            _isPWDCapture = newValue
+        }
+    }
+
+    private var pwdBuffer: String {
+        get {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            return _pwdBuffer
+        }
+        set {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            _pwdBuffer = newValue
             // Automatically trim buffer if it exceeds limit
-            if pwdBuffer.count > Self.maxPWDBufferSize {
+            if _pwdBuffer.count > Self.maxPWDBufferSize {
                 // If PWD capture buffer gets too large, abort capture
-                isPWDCapture = false
-                pwdBuffer = ""
+                _isPWDCapture = false
+                _pwdBuffer = ""
             }
         }
     }
@@ -326,106 +365,159 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         // Then monitor the output for claude command
         guard let text = String(bytes: slice, encoding: .utf8) else { return }
 
-        // Post terminal output for ContextMonitor
-        NotificationCenter.default.post(
-            name: .terminalOutput,
-            object: nil,
-            userInfo: ["text": text]
-        )
+        // Post terminal output for ContextMonitor (on main thread to avoid issues)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .terminalOutput,
+                object: nil,
+                userInfo: ["text": text]
+            )
+        }
 
-        if isPWDCapture {
-            // Capturing pwd output
-            pwdBuffer += text
+        // Process buffer atomically
+        processReceivedData(text)
+    }
 
-            // Wait until we have both markers
-            if pwdBuffer.contains("___PWD_START___") && pwdBuffer.contains("___PWD_END___") {
-                // Extract PWD between markers
-                if let startRange = pwdBuffer.range(of: "___PWD_START___"),
-                   let endRange = pwdBuffer.range(of: "___PWD_END___") {
-                    let pwdSection = pwdBuffer[startRange.upperBound..<endRange.lowerBound]
+    /// Process received data with proper synchronization
+    private func processReceivedData(_ text: String) {
+        // Check PWD capture state atomically
+        bufferLock.lock()
+        let isCapturing = _isPWDCapture
+        if isCapturing {
+            _pwdBuffer += text
+            let currentPWDBuffer = _pwdBuffer
+            bufferLock.unlock()
 
-                    // Remove ANSI codes from the section
-                    var cleanSection = String(pwdSection)
-                    cleanSection = cleanSection.replacingOccurrences(of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
-
-                    let lines = cleanSection.components(separatedBy: CharacterSet.newlines)
-
-                    for line in lines {
-                        let trimmed = line.trimmingCharacters(in: .whitespaces)
-                        if !trimmed.isEmpty && trimmed.hasPrefix("/") {
-                            NotificationCenter.default.post(
-                                name: .claudeCodeStarted,
-                                object: nil,
-                                userInfo: ["workingDirectory": trimmed]
-                            )
-                            isPWDCapture = false
-                            pwdBuffer = ""
-                            return
-                        }
-                    }
-                }
-
-                // If we didn't find a path, reset and give up
-                isPWDCapture = false
-                pwdBuffer = ""
-            }
-
-            // Buffer size is automatically limited by didSet
+            processPWDCapture(buffer: currentPWDBuffer)
             return
         }
 
-        outputBuffer += text
+        // Regular output processing
+        _outputBuffer += text
+        let currentBuffer = _outputBuffer
+        bufferLock.unlock()
 
-        // Check for Enter key after typing 'claude'
-        if text.contains("\n") || text.contains("\r") {
-            // Remove ANSI codes
-            let cleanBuffer = outputBuffer.replacingOccurrences(of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+        processOutputBuffer(buffer: currentBuffer, newText: text)
+    }
 
-            // Get last 100 characters to check
-            let searchText = String(cleanBuffer.suffix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Simple check: does it contain "claude" anywhere in the last bit?
-            if searchText.contains("claude") && !isPWDCapture {
-                // Extract PWD from the prompt itself (e.g., "Olaf@olafs-mbp-m1 /path/to/dir % claude")
-                // The prompt format is typically: username@host path % command
-                var workingDir = "/"  // Default fallback
-
-                // Try to extract path from prompt pattern
-                if let match = searchText.range(of: #"@[^\s]+ ([^\s]+) [%$]"#, options: .regularExpression) {
-                    let matchedText = String(searchText[match])
-                    // Extract the path part (between the space and the % or $)
-                    let components = matchedText.components(separatedBy: " ")
-                    if components.count >= 2 {
-                        workingDir = components[components.count - 2]
-                    }
-                }
-
-                // Expand ~ to home directory
-                if workingDir.hasPrefix("~") {
-                    workingDir = workingDir.replacingOccurrences(of: "~", with: NSHomeDirectory())
-                }
-
-                // If path doesn't start with /, it might be relative - default to root
-                if !workingDir.hasPrefix("/") {
-                    workingDir = "/"
-                }
-
-                NotificationCenter.default.post(
-                    name: .claudeCodeStarted,
-                    object: nil,
-                    userInfo: ["workingDirectory": workingDir]
-                )
-
-                // Clear buffer to avoid re-detecting
-                outputBuffer = ""
-            }
-            // Buffer size is automatically limited by didSet
+    /// Process PWD capture buffer
+    private func processPWDCapture(buffer: String) {
+        guard buffer.contains("___PWD_START___") && buffer.contains("___PWD_END___") else {
+            return
         }
+
+        // Extract PWD between markers
+        if let startRange = buffer.range(of: "___PWD_START___"),
+           let endRange = buffer.range(of: "___PWD_END___") {
+            let pwdSection = buffer[startRange.upperBound..<endRange.lowerBound]
+
+            // Remove ANSI codes from the section
+            var cleanSection = String(pwdSection)
+            cleanSection = cleanSection.replacingOccurrences(
+                of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]",
+                with: "",
+                options: .regularExpression
+            )
+
+            let lines = cleanSection.components(separatedBy: CharacterSet.newlines)
+
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty && trimmed.hasPrefix("/") {
+                    // Post notification on main thread
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: .claudeCodeStarted,
+                            object: nil,
+                            userInfo: ["workingDirectory": trimmed]
+                        )
+                    }
+
+                    // Reset capture state atomically
+                    bufferLock.lock()
+                    _isPWDCapture = false
+                    _pwdBuffer = ""
+                    bufferLock.unlock()
+                    return
+                }
+            }
+        }
+
+        // If we didn't find a path, reset and give up
+        bufferLock.lock()
+        _isPWDCapture = false
+        _pwdBuffer = ""
+        bufferLock.unlock()
+    }
+
+    /// Process regular output buffer for claude command detection
+    private func processOutputBuffer(buffer: String, newText: String) {
+        // Check for Enter key after typing 'claude'
+        guard newText.contains("\n") || newText.contains("\r") else { return }
+
+        // Remove ANSI codes
+        let cleanBuffer = buffer.replacingOccurrences(
+            of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Get last 100 characters to check
+        let searchText = String(cleanBuffer.suffix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard searchText.contains("claude") else { return }
+
+        // Check if already capturing (atomically)
+        bufferLock.lock()
+        guard !_isPWDCapture else {
+            bufferLock.unlock()
+            return
+        }
+        bufferLock.unlock()
+
+        // Extract PWD from the prompt itself (e.g., "Olaf@olafs-mbp-m1 /path/to/dir % claude")
+        var workingDir = "/"  // Default fallback
+
+        // Try to extract path from prompt pattern
+        if let match = searchText.range(of: #"@[^\s]+ ([^\s]+) [%$]"#, options: .regularExpression) {
+            let matchedText = String(searchText[match])
+            let components = matchedText.components(separatedBy: " ")
+            if components.count >= 2 {
+                workingDir = components[components.count - 2]
+            }
+        }
+
+        // Expand ~ to home directory
+        if workingDir.hasPrefix("~") {
+            workingDir = workingDir.replacingOccurrences(of: "~", with: NSHomeDirectory())
+        }
+
+        // If path doesn't start with /, it might be relative - default to root
+        if !workingDir.hasPrefix("/") {
+            workingDir = "/"
+        }
+
+        // Post notification on main thread
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .claudeCodeStarted,
+                object: nil,
+                userInfo: ["workingDirectory": workingDir]
+            )
+        }
+
+        // Clear buffer atomically
+        bufferLock.lock()
+        _outputBuffer = ""
+        bufferLock.unlock()
     }
 
     private func getPWD() {
-        isPWDCapture = true
-        pwdBuffer = ""
+        // Set capture state atomically
+        bufferLock.lock()
+        _isPWDCapture = true
+        _pwdBuffer = ""
+        bufferLock.unlock()
 
         let command = "echo ___PWD_START___; pwd; echo ___PWD_END___\r"
         if let data = command.data(using: .utf8) {
