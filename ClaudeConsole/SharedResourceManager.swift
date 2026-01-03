@@ -12,6 +12,7 @@ import Combine
 import os.log
 
 /// Singleton managing app-wide hardware resources and routing input to focused window
+@MainActor
 final class SharedResourceManager: ObservableObject {
     static let shared = SharedResourceManager()
 
@@ -38,8 +39,16 @@ final class SharedResourceManager: ObservableObject {
 
     // MARK: - Window Registry
 
-    /// Registered window coordinators, keyed by window UUID
-    private var windowCoordinators: [UUID: WindowCoordinatorProtocol] = [:]
+    /// Weak wrapper to prevent retain cycles with window coordinators
+    private class WeakCoordinatorWrapper {
+        weak var coordinator: WindowCoordinatorProtocol?
+        init(_ coordinator: WindowCoordinatorProtocol) {
+            self.coordinator = coordinator
+        }
+    }
+
+    /// Registered window coordinators (weak references), keyed by window UUID
+    private var windowCoordinators: [UUID: WeakCoordinatorWrapper] = [:]
     private let lock = NSLock()
 
     // MARK: - Combine
@@ -64,15 +73,13 @@ final class SharedResourceManager: ObservableObject {
     /// Register a window coordinator to receive routed input events
     func registerWindow(id: UUID, coordinator: WindowCoordinatorProtocol) {
         lock.lock()
-        defer { lock.unlock() }
+        windowCoordinators[id] = WeakCoordinatorWrapper(coordinator)
+        let isFirstWindow = focusedWindowID == nil
+        lock.unlock()
 
-        windowCoordinators[id] = coordinator
-
-        // If this is the first window, make it focused
-        if focusedWindowID == nil {
-            DispatchQueue.main.async {
-                self.focusedWindowID = id
-            }
+        // If this is the first window, make it focused (already on main thread due to @MainActor)
+        if isFirstWindow {
+            focusedWindowID = id
         }
 
         Self.logger.info("Registered window: \(id)")
@@ -81,15 +88,15 @@ final class SharedResourceManager: ObservableObject {
     /// Unregister a window coordinator when window closes
     func unregisterWindow(id: UUID) {
         lock.lock()
-        defer { lock.unlock() }
-
         windowCoordinators.removeValue(forKey: id)
+        // Clean up any nil weak references while we're at it
+        windowCoordinators = windowCoordinators.filter { $0.value.coordinator != nil }
+        let nextWindowID = windowCoordinators.keys.first
+        lock.unlock()
 
-        // If this was the focused window, clear focus or pick another
+        // If this was the focused window, pick another (already on main thread due to @MainActor)
         if focusedWindowID == id {
-            DispatchQueue.main.async {
-                self.focusedWindowID = self.windowCoordinators.keys.first
-            }
+            focusedWindowID = nextWindowID
         }
 
         Self.logger.info("Unregistered window: \(id)")
@@ -97,16 +104,19 @@ final class SharedResourceManager: ObservableObject {
 
     /// Set the focused window (called when window becomes key)
     func setFocusedWindow(id: UUID) {
-        guard windowCoordinators[id] != nil else {
+        lock.lock()
+        let exists = windowCoordinators[id]?.coordinator != nil
+        lock.unlock()
+
+        guard exists else {
             Self.logger.warning("Attempted to focus unregistered window: \(id)")
             return
         }
 
-        DispatchQueue.main.async {
-            if self.focusedWindowID != id {
-                self.focusedWindowID = id
-                Self.logger.debug("Focused window changed to: \(id)")
-            }
+        // Already on main thread due to @MainActor
+        if focusedWindowID != id {
+            focusedWindowID = id
+            Self.logger.debug("Focused window changed to: \(id)")
         }
     }
 
@@ -114,7 +124,7 @@ final class SharedResourceManager: ObservableObject {
     func coordinator(for windowID: UUID) -> WindowCoordinatorProtocol? {
         lock.lock()
         defer { lock.unlock() }
-        return windowCoordinators[windowID]
+        return windowCoordinators[windowID]?.coordinator
     }
 
     /// Get the currently focused coordinator
@@ -123,7 +133,7 @@ final class SharedResourceManager: ObservableObject {
         defer { lock.unlock() }
 
         guard let focusedID = focusedWindowID else { return nil }
-        return windowCoordinators[focusedID]
+        return windowCoordinators[focusedID]?.coordinator
     }
 
     // MARK: - Input Routing
@@ -176,23 +186,22 @@ final class SharedResourceManager: ObservableObject {
     }
 
     /// Route an action to the currently focused window's coordinator
-    private func routeToFocusedWindow(_ action: @escaping (WindowCoordinatorProtocol) -> Void) {
-        lock.lock()
-        guard let focusedID = focusedWindowID,
-              let coordinator = windowCoordinators[focusedID] else {
-            lock.unlock()
-            Self.logger.debug("No focused window to route input to")
-            return
-        }
-        lock.unlock()
+    /// This method is nonisolated to allow callbacks from any thread, but dispatches to main
+    nonisolated private func routeToFocusedWindow(_ action: @escaping @MainActor (WindowCoordinatorProtocol) -> Void) {
+        // Always dispatch to main thread first for thread safety
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
 
-        // Always dispatch to main thread for UI safety
-        if Thread.isMainThread {
-            action(coordinator)
-        } else {
-            DispatchQueue.main.async {
-                action(coordinator)
+            self.lock.lock()
+            guard let focusedID = self.focusedWindowID,
+                  let coordinator = self.windowCoordinators[focusedID]?.coordinator else {
+                self.lock.unlock()
+                Self.logger.debug("No focused window to route input to")
+                return
             }
+            self.lock.unlock()
+
+            action(coordinator)
         }
     }
 

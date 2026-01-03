@@ -16,7 +16,8 @@ import os.log
 /// Per-window coordinator for PS4/PS5 controller functionality
 /// Receives button events routed from SharedResourceManager and executes
 /// actions on this window's terminal
-class PS4ControllerCoordinator: ObservableObject {
+@MainActor
+final class PS4ControllerCoordinator: ObservableObject {
     private static let logger = Logger(subsystem: "com.app.ClaudeConsole", category: "PS4ControllerCoordinator")
 
     // MARK: - Window Identity

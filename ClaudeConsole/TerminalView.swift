@@ -608,6 +608,10 @@ struct TerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MonitoredLocalProcessTerminalView, context: Context) {
+        // Update callbacks if they've changed (SwiftUI may recreate the struct with new closures)
+        nsView.onDataReceived = onOutput
+        nsView.onClaudeStarted = onClaudeStarted
+
         // Update layout when SwiftUI view geometry changes
         // This ensures the terminal's coordinate system stays in sync
         DispatchQueue.main.async {

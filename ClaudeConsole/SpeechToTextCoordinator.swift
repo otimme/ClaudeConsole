@@ -15,7 +15,8 @@ import os.log
 /// Per-window coordinator for speech-to-text functionality
 /// Receives events routed from SharedResourceManager and inserts transcribed text
 /// into this window's terminal
-class SpeechToTextCoordinator: ObservableObject {
+@MainActor
+final class SpeechToTextCoordinator: ObservableObject {
     private static let logger = Logger(subsystem: "com.app.ClaudeConsole", category: "SpeechToTextCoordinator")
 
     // MARK: - Window Identity
@@ -129,14 +130,10 @@ class SpeechToTextCoordinator: ObservableObject {
     // MARK: - Recording Control (called by WindowContext)
 
     /// Start recording - called when this window receives push-to-talk key press
+    /// Note: SharedResourceManager routes events only to the focused window, so no focus check needed
     func handleRecordingStarted() {
         guard isReady else {
             Self.logger.warning("Cannot start recording: speech recognition not ready")
-            return
-        }
-
-        guard shared.focusedWindowID == windowID else {
-            Self.logger.debug("Ignoring recording start - not focused window")
             return
         }
 
@@ -145,12 +142,8 @@ class SpeechToTextCoordinator: ObservableObject {
     }
 
     /// Stop recording and transcribe - called when this window receives push-to-talk key release
+    /// Note: SharedResourceManager routes events only to the focused window, so no focus check needed
     func handleRecordingStopped() {
-        guard shared.focusedWindowID == windowID else {
-            Self.logger.debug("Ignoring recording stop - not focused window")
-            return
-        }
-
         Self.logger.debug("Stopping recording for window: \(self.windowID)")
 
         guard let audioURL = shared.stopRecording() else {
@@ -170,22 +163,22 @@ class SpeechToTextCoordinator: ObservableObject {
     // MARK: - Controller Integration
 
     /// Start recording via controller (thread-safe, can be called from any thread)
-    func startRecordingViaController() {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated func startRecordingViaController() {
+        Task { @MainActor [weak self] in
             self?.handleRecordingStarted()
         }
     }
 
     /// Stop recording via controller (thread-safe, can be called from any thread)
-    func stopRecordingViaController() {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated func stopRecordingViaController() {
+        Task { @MainActor [weak self] in
             self?.handleRecordingStopped()
         }
     }
 
     /// Toggle recording state (for toggle mode)
-    func toggleRecordingViaController() {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated func toggleRecordingViaController() {
+        Task { @MainActor [weak self] in
             guard let self = self else { return }
 
             // Don't toggle if transcribing is in progress
@@ -204,7 +197,6 @@ class SpeechToTextCoordinator: ObservableObject {
 
     // MARK: - Terminal Integration
 
-    @MainActor
     private func insertTextIntoTerminal(_ text: String) {
         guard let terminal = terminalController, !text.isEmpty else {
             Self.logger.warning("Cannot insert text: no terminal controller or empty text")

@@ -8,7 +8,8 @@
 import Foundation
 import Combine
 
-class RadialMenuController: ObservableObject {
+@MainActor
+final class RadialMenuController: ObservableObject {
     // MARK: - Published State
 
     /// Whether the radial menu is currently visible
@@ -66,6 +67,17 @@ class RadialMenuController: ObservableObject {
     private var selectionDebounceTimer: Timer? = nil
     private var pendingDirection: CompassDirection? = nil
     private var isExecuting: Bool = false
+
+    // MARK: - Cleanup
+
+    deinit {
+        // Invalidate all timers to prevent leaks
+        // Note: Only invalidation is needed; properties will be deallocated with the object
+        for timer in holdTimers.values {
+            timer.invalidate()
+        }
+        selectionDebounceTimer?.invalidate()
+    }
 
     // MARK: - Public Methods
 
@@ -162,7 +174,9 @@ class RadialMenuController: ObservableObject {
             pendingDirection = newDirection
             selectionDebounceTimer?.invalidate()
             selectionDebounceTimer = Timer.scheduledTimer(withTimeInterval: selectionDebounce, repeats: false) { [weak self] _ in
-                self?.selectedDirection = self?.pendingDirection
+                Task { @MainActor [weak self] in
+                    self?.selectedDirection = self?.pendingDirection
+                }
             }
         }
     }

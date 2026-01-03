@@ -12,7 +12,8 @@ import AppKit
 import UserNotifications
 import os.log
 
-class PS4ControllerController: ObservableObject {
+@MainActor
+final class PS4ControllerController: ObservableObject {
     // Configuration constants
     private static let sequenceActionDelay: TimeInterval = 0.1  // seconds between sequence actions
     private static let notificationDisplayDelay: TimeInterval = 2.0  // seconds for notifications
@@ -781,6 +782,7 @@ class PS4ControllerController: ObservableObject {
 
         // FIX: Stop any active recording to prevent microphone staying open
         // Critical for battery life and privacy
+        // Note: Using nonisolated stopRecordingViaController which handles MainActor dispatch
         if case .recording = pushToTalkState {
             os_log("Controller deallocating during push-to-talk - stopping recording", log: .default, type: .info)
             if let speech = appCommandExecutor.speechCoordinator {
@@ -788,13 +790,10 @@ class PS4ControllerController: ObservableObject {
             }
         }
 
-        // Stop all repeat timers
-        stopAllRepeatTimers()
-
-        // FIX: Clear callbacks to break reference cycles
-        // Without this, monitor could hold strong reference to self via closures
-        monitor.onButtonPressed = nil
-        monitor.onButtonReleased = nil
+        // Stop all repeat timers (cancel directly since DispatchSourceTimer is Sendable)
+        for timer in repeatTimers.values {
+            timer.cancel()
+        }
     }
 }
 

@@ -55,10 +55,9 @@ struct ClaudeConsoleApp: App {
     }
 
     private func openNewWindow() {
-        // Open a new window using the default WindowGroup behavior
-        if let url = URL(string: "claudeconsole://new") {
-            NSWorkspace.shared.open(url)
-        }
+        // Use NSApp's newWindowForTab action to open a new window
+        // This works with WindowGroup and respects the system's window management
+        NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
     }
 }
 

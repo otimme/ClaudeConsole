@@ -13,6 +13,7 @@ import Combine
 import os.log
 
 /// Per-window context that coordinates hardware input routing and component wiring
+@MainActor
 final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     private static let logger = Logger(subsystem: "com.app.ClaudeConsole", category: "WindowContext")
 
@@ -42,16 +43,10 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     // MARK: - Per-Window Coordinators
 
     /// PS4/PS5 controller coordinator for this window
-    lazy var ps4Coordinator: PS4ControllerCoordinator = {
-        let coordinator = PS4ControllerCoordinator(windowID: windowID)
-        coordinator.speechCoordinator = speechCoordinator
-        return coordinator
-    }()
+    let ps4Coordinator: PS4ControllerCoordinator
 
     /// Speech-to-text coordinator for this window
-    lazy var speechCoordinator: SpeechToTextCoordinator = {
-        SpeechToTextCoordinator(windowID: windowID)
-    }()
+    let speechCoordinator: SpeechToTextCoordinator
 
     // MARK: - Published State (forwarded from coordinators)
 
@@ -71,6 +66,11 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     init() {
         self.windowID = UUID()
 
+        // Initialize coordinators eagerly with explicit dependency order
+        self.speechCoordinator = SpeechToTextCoordinator(windowID: windowID)
+        self.ps4Coordinator = PS4ControllerCoordinator(windowID: windowID)
+        self.ps4Coordinator.speechCoordinator = self.speechCoordinator
+
         // Register with SharedResourceManager
         shared.registerWindow(id: windowID, coordinator: self)
 
@@ -81,10 +81,15 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     }
 
     deinit {
-        // Unregister from SharedResourceManager
-        SharedResourceManager.shared.unregisterWindow(id: windowID)
+        // Capture window ID for use in async block
+        let id = windowID
 
-        Self.logger.info("WindowContext destroyed: \(self.windowID)")
+        // Unregister from SharedResourceManager (dispatch to main thread since we're in deinit)
+        Task { @MainActor in
+            SharedResourceManager.shared.unregisterWindow(id: id)
+        }
+
+        Self.logger.info("WindowContext destroyed: \(id)")
     }
 
     // MARK: - Focus Management
@@ -130,37 +135,25 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     }
 
     // MARK: - WindowCoordinatorProtocol
+    // Note: SharedResourceManager already routes events only to the focused window,
+    // so focus checks here are redundant. We trust the routing layer.
 
     func handleSpeechRecordingStarted() {
-        guard isFocused else {
-            Self.logger.warning("Ignoring speech recording start - window not focused")
-            return
-        }
-
         Self.logger.debug("Starting speech recording for window: \(self.windowID)")
         speechCoordinator.handleRecordingStarted()
     }
 
     func handleSpeechRecordingStopped() {
-        guard isFocused else {
-            Self.logger.warning("Ignoring speech recording stop - window not focused")
-            return
-        }
-
         Self.logger.debug("Stopping speech recording for window: \(self.windowID)")
         speechCoordinator.handleRecordingStopped()
     }
 
     func handlePS4ButtonPressed(_ button: PS4Button) {
-        guard isFocused else { return }
-
         Self.logger.debug("PS4 button pressed: \(button.rawValue) for window: \(self.windowID)")
         ps4Coordinator.handleButtonPressed(button)
     }
 
     func handlePS4ButtonReleased(_ button: PS4Button) {
-        guard isFocused else { return }
-
         Self.logger.debug("PS4 button released: \(button.rawValue) for window: \(self.windowID)")
         ps4Coordinator.handleButtonReleased(button)
     }
