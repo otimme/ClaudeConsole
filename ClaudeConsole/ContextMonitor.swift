@@ -34,8 +34,40 @@ class ContextMonitor: ObservableObject {
     @Published var contextStats = ContextStats()
 
     private weak var terminalController: LocalProcessTerminalView?
-    private var outputBuffer = ""
-    private var isCapturingContext = false
+
+    // MARK: - Thread-Safe Buffer Access
+    // Buffer properties are protected by bufferLock to prevent race conditions
+    private let bufferLock = NSLock()
+    private var _outputBuffer = ""
+    private var _isCapturingContext = false
+
+    // Thread-safe accessors
+    private var outputBuffer: String {
+        get {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            return _outputBuffer
+        }
+        set {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            _outputBuffer = newValue
+        }
+    }
+
+    private var isCapturingContext: Bool {
+        get {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            return _isCapturingContext
+        }
+        set {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            _isCapturingContext = newValue
+        }
+    }
+
     private var captureTimer: Timer?
     private var terminalOutputObserver: NSObjectProtocol?
     private var terminalControllerObserver: NSObjectProtocol?
@@ -190,7 +222,19 @@ class ContextMonitor: ObservableObject {
     }
 
     deinit {
-        captureTimer?.invalidate()
+        // Timer must be invalidated on the same thread it was created (main thread)
+        // Since we create timers in handleTerminalOutput which runs on main,
+        // we need to ensure cleanup happens on main thread
+        if Thread.isMainThread {
+            captureTimer?.invalidate()
+            captureTimer = nil
+        } else {
+            // Capture reference before async to avoid accessing self after dealloc starts
+            let timer = captureTimer
+            DispatchQueue.main.sync {
+                timer?.invalidate()
+            }
+        }
 
         if let observer = terminalOutputObserver {
             NotificationCenter.default.removeObserver(observer)
