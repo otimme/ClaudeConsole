@@ -123,6 +123,15 @@ class ContextMonitor: ObservableObject {
     }
 
     private func handleTerminalOutput(_ text: String) {
+        // Detect if user manually typed /context command
+        if !isCapturingContext && text.contains("/context") {
+            // Start capturing - user manually invoked /context
+            bufferLock.lock()
+            _isCapturingContext = true
+            _outputBuffer = ""
+            bufferLock.unlock()
+        }
+
         guard isCapturingContext else { return }
 
         outputBuffer += text
