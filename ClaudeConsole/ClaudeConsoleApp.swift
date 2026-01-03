@@ -30,9 +30,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct ClaudeConsoleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    // Initialize SharedResourceManager early to set up hardware monitoring
+    // This ensures keyboard, audio, and controller resources are ready
+    // before any windows are created
+    private let sharedResources = SharedResourceManager.shared
+
+    init() {
+        logger.info("ClaudeConsoleApp initializing with SharedResourceManager")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+        }
+        .commands {
+            // Add Window menu commands for multi-window support
+            CommandGroup(after: .newItem) {
+                Button("New Window") {
+                    openNewWindow()
+                }
+                .keyboardShortcut("n", modifiers: [.command])
+            }
+        }
+    }
+
+    private func openNewWindow() {
+        // Open a new window using the default WindowGroup behavior
+        if let url = URL(string: "claudeconsole://new") {
+            NSWorkspace.shared.open(url)
         }
     }
 }

@@ -33,7 +33,14 @@ struct ContextStats: Codable {
 class ContextMonitor: ObservableObject {
     @Published var contextStats = ContextStats()
 
-    private weak var terminalController: LocalProcessTerminalView?
+    /// Terminal controller reference - can be set directly for multi-instance support
+    /// or via notification for backwards compatibility
+    weak var terminalController: LocalProcessTerminalView? {
+        didSet {
+            // When terminal is set directly, we don't need notification observer
+            // but we keep it for backwards compatibility
+        }
+    }
 
     // MARK: - Thread-Safe Buffer Access
     // Buffer properties are protected by bufferLock to prevent race conditions
@@ -96,6 +103,14 @@ class ContextMonitor: ObservableObject {
                 self.terminalController = controller
             }
         }
+    }
+
+    // MARK: - Multi-Instance Support
+
+    /// Receive terminal output directly from TerminalView callback
+    /// This bypasses NotificationCenter for window-scoped output handling
+    func receiveTerminalOutput(_ text: String) {
+        handleTerminalOutput(text)
     }
 
     // Public method to manually request context update

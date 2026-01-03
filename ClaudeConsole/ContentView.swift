@@ -14,6 +14,10 @@ import os.log
 private let logger = Logger(subsystem: "com.claudeconsole", category: "ContentView")
 
 struct ContentView: View {
+    // MARK: - Window Context (Multi-Instance Support)
+    /// Per-window context for identity and input routing
+    @StateObject private var windowContext = WindowContext()
+
     @StateObject private var usageMonitor = UsageMonitor()
     @StateObject private var contextMonitor = ContextMonitor()
     @StateObject private var speechToText = SpeechToTextController()
@@ -79,6 +83,7 @@ struct ContentView: View {
 
     init() {
         // Wire up dependencies after initialization
+        _windowContext = StateObject(wrappedValue: WindowContext())
         _usageMonitor = StateObject(wrappedValue: UsageMonitor())
         _contextMonitor = StateObject(wrappedValue: ContextMonitor())
         _speechToText = StateObject(wrappedValue: SpeechToTextController())
@@ -90,6 +95,10 @@ struct ContentView: View {
             // Fallout background
             Color.Fallout.background
                 .ignoresSafeArea()
+
+            // Window focus monitor for multi-instance input routing
+            WindowFocusMonitor(windowContext: windowContext)
+                .frame(width: 0, height: 0)
 
             VStack(spacing: 0) {
                 // Fallout-style status bar at the very top
@@ -135,8 +144,18 @@ struct ContentView: View {
                 HStack(spacing: 0) {
                     // Terminal in the middle with speech-to-text overlay
                     ZStack(alignment: .top) {
-                        TerminalView(terminalController: $terminalController)
-                            .frame(minWidth: 600, minHeight: 400)
+                        TerminalView(
+                            terminalController: $terminalController,
+                            onOutput: { [weak contextMonitor] text in
+                                // Forward terminal output directly to this window's ContextMonitor
+                                contextMonitor?.receiveTerminalOutput(text)
+                            },
+                            onClaudeStarted: { [weak windowContext] workingDir in
+                                // Forward Claude started event to this window's context
+                                windowContext?.receiveClaudeStarted(workingDirectory: workingDir)
+                            }
+                        )
+                        .frame(minWidth: 600, minHeight: 400)
 
                     // Model download indicator (center)
                     if speechToText.speechRecognition.isDownloadingModel {
@@ -308,6 +327,14 @@ struct ContentView: View {
             // against creating duplicate Combine subscriptions which cause memory leaks.
             guard subscriptionManager.cancellables.isEmpty else { return }
 
+            // Note: Window focus detection is handled by WindowFocusMonitor background view
+
+            // Wire up WindowContext terminal reference
+            windowContext.terminalController = terminalController
+
+            // Wire up ContextMonitor terminal reference for direct access
+            contextMonitor.terminalController = terminalController
+
             // FIX: Wire up AppCommandExecutor dependencies for direct access
             // This replaces the previous NotificationCenter-based approach with direct references,
             // making the code more testable and eliminating hidden coupling.
@@ -362,6 +389,12 @@ struct ContentView: View {
             // FIX: Update AppCommandExecutor's terminal controller when it becomes available
             // Terminal controller is set asynchronously after view initialization via binding
             ps4Controller.appCommandExecutor.terminalController = newController
+
+            // Update WindowContext's terminal controller for multi-instance support
+            windowContext.terminalController = newController
+
+            // Update ContextMonitor's terminal controller for direct access
+            contextMonitor.terminalController = newController
         }
     }
 
@@ -596,6 +629,78 @@ struct SpeechStatusIndicator: View {
         .padding(.vertical, 6)
         .background(Color.black.opacity(0.75))
         .cornerRadius(20)
+    }
+}
+
+// MARK: - Window Focus Monitor
+
+/// NSViewRepresentable that monitors window focus changes for a specific window
+/// Used for multi-instance support to route hardware input to the correct window
+struct WindowFocusMonitor: NSViewRepresentable {
+    let windowContext: WindowContext
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowFocusMonitorView()
+        view.windowContext = windowContext
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let view = nsView as? WindowFocusMonitorView {
+            view.windowContext = windowContext
+        }
+    }
+
+    class WindowFocusMonitorView: NSView {
+        weak var windowContext: WindowContext?
+        private var becameKeyObserver: NSObjectProtocol?
+        private var resignedKeyObserver: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            // Clean up old observers
+            if let observer = becameKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = resignedKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+
+            guard let window = self.window else { return }
+
+            // Observe this specific window becoming key
+            becameKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.windowContext?.windowBecameKey()
+            }
+
+            // Observe this specific window resigning key
+            resignedKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.windowContext?.windowResignedKey()
+            }
+
+            // If this window is already key, notify immediately
+            if window.isKeyWindow {
+                windowContext?.windowBecameKey()
+            }
+        }
+
+        deinit {
+            if let observer = becameKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = resignedKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
     }
 }
 
