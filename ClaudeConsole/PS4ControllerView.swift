@@ -11,7 +11,7 @@ import SwiftUI
 struct PS4ControllerView: View {
     @ObservedObject var monitor: PS4ControllerMonitor
     @ObservedObject var mapping: PS4ButtonMapping
-    @ObservedObject var controller: PS4ControllerController
+    @ObservedObject var profileManager: RadialMenuProfileManager
     @State private var showConfiguration = false
     @State private var configuringButton: PS4Button?
 
@@ -38,7 +38,7 @@ struct PS4ControllerView: View {
             .padding(.horizontal)
 
             // Radial Menu Profile Selector
-            RadialMenuProfileSelector(profileManager: controller.radialMenuController.profileManager)
+            RadialMenuProfileSelector(profileManager: profileManager)
                 .padding(.horizontal)
 
             Divider()
@@ -171,7 +171,7 @@ struct PS4ControllerView: View {
         .padding()
         .background(Color(NSColor.windowBackgroundColor))
         .sheet(isPresented: $showConfiguration) {
-            PS4EnhancedConfigView(mapping: mapping, controller: controller)
+            PS4EnhancedConfigView(mapping: mapping)
         }
     }
 }

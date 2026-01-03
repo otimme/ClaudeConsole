@@ -8,7 +8,8 @@
 import Foundation
 import Combine
 
-class RadialMenuController: ObservableObject {
+@MainActor
+final class RadialMenuController: ObservableObject {
     // MARK: - Published State
 
     /// Whether the radial menu is currently visible
@@ -26,6 +27,11 @@ class RadialMenuController: ObservableObject {
     // MARK: - Profile Manager
 
     let profileManager = RadialMenuProfileManager()
+
+    // MARK: - Action Callback
+
+    /// Callback invoked when an action is selected from the radial menu
+    var onActionSelected: ((ButtonAction) -> Void)?
 
     // MARK: - Menu Types
 
@@ -61,6 +67,17 @@ class RadialMenuController: ObservableObject {
     private var selectionDebounceTimer: Timer? = nil
     private var pendingDirection: CompassDirection? = nil
     private var isExecuting: Bool = false
+
+    // MARK: - Cleanup
+
+    deinit {
+        // Invalidate all timers to prevent leaks
+        // Note: Only invalidation is needed; properties will be deallocated with the object
+        for timer in holdTimers.values {
+            timer.invalidate()
+        }
+        selectionDebounceTimer?.invalidate()
+    }
 
     // MARK: - Public Methods
 
@@ -157,7 +174,9 @@ class RadialMenuController: ObservableObject {
             pendingDirection = newDirection
             selectionDebounceTimer?.invalidate()
             selectionDebounceTimer = Timer.scheduledTimer(withTimeInterval: selectionDebounce, repeats: false) { [weak self] _ in
-                self?.selectedDirection = self?.pendingDirection
+                Task { @MainActor [weak self] in
+                    self?.selectedDirection = self?.pendingDirection
+                }
             }
         }
     }
@@ -173,13 +192,8 @@ class RadialMenuController: ObservableObject {
         // Set executing flag to prevent double-execution
         isExecuting = true
 
-        // Notify delegate to execute action
-        // This will be handled by PS4ControllerController
-        NotificationCenter.default.post(
-            name: .radialMenuActionSelected,
-            object: nil,
-            userInfo: ["action": action]
-        )
+        // Execute action via callback
+        onActionSelected?(action)
 
         // Reset flag after brief delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -194,8 +208,3 @@ class RadialMenuController: ObservableObject {
     }
 }
 
-// MARK: - Notification Name
-
-extension Notification.Name {
-    static let radialMenuActionSelected = Notification.Name("radialMenuActionSelected")
-}

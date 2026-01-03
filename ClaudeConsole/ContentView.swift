@@ -14,10 +14,20 @@ import os.log
 private let logger = Logger(subsystem: "com.claudeconsole", category: "ContentView")
 
 struct ContentView: View {
+    // MARK: - Window Context (Multi-Instance Support)
+    /// Per-window context for identity and input routing
+    @StateObject private var windowContext = WindowContext()
+
     @StateObject private var usageMonitor = UsageMonitor()
     @StateObject private var contextMonitor = ContextMonitor()
-    @StateObject private var speechToText = SpeechToTextController()
-    @StateObject private var ps4Controller = PS4ControllerController()
+
+    // MARK: - Shared Resources (read from SharedResourceManager)
+    private var sharedMonitor: PS4ControllerMonitor { SharedResourceManager.shared.ps4Monitor }
+    private var sharedSpeechRecognition: SpeechRecognitionManager { SharedResourceManager.shared.speechRecognition }
+
+    // MARK: - Per-Window Coordinators (accessed through WindowContext)
+    private var speechCoordinator: SpeechToTextCoordinator { windowContext.speechCoordinator }
+    private var ps4Coordinator: PS4ControllerCoordinator { windowContext.ps4Coordinator }
     @State private var terminalController: LocalProcessTerminalView?
     @State private var showPS4Controller = false
     @State private var useCompactStatusBar = false
@@ -79,10 +89,9 @@ struct ContentView: View {
 
     init() {
         // Wire up dependencies after initialization
+        _windowContext = StateObject(wrappedValue: WindowContext())
         _usageMonitor = StateObject(wrappedValue: UsageMonitor())
         _contextMonitor = StateObject(wrappedValue: ContextMonitor())
-        _speechToText = StateObject(wrappedValue: SpeechToTextController())
-        _ps4Controller = StateObject(wrappedValue: PS4ControllerController())
     }
 
     var body: some View {
@@ -91,22 +100,26 @@ struct ContentView: View {
             Color.Fallout.background
                 .ignoresSafeArea()
 
+            // Window focus monitor for multi-instance input routing
+            WindowFocusMonitor(windowContext: windowContext)
+                .frame(width: 0, height: 0)
+
             VStack(spacing: 0) {
                 // Fallout-style status bar at the very top
                 FalloutStatusBar(title: "CLAUDE CONSOLE", showIndicators: true)
 
                 // PS4 Controller status bar (only when connected)
-                if showPS4StatusBar && ps4Controller.monitor.isConnected {
+                if showPS4StatusBar && sharedMonitor.isConnected {
                     Group {
                         if useCompactStatusBar {
                             PS4ControllerMiniBar(
-                                monitor: ps4Controller.monitor,
-                                mapping: ps4Controller.mapping
+                                monitor: sharedMonitor,
+                                mapping: ps4Coordinator.mapping
                             )
                         } else {
                             PS4ControllerStatusBar(
-                                monitor: ps4Controller.monitor,
-                                mapping: ps4Controller.mapping
+                                monitor: sharedMonitor,
+                                mapping: ps4Coordinator.mapping
                             )
                         }
                     }
@@ -135,30 +148,40 @@ struct ContentView: View {
                 HStack(spacing: 0) {
                     // Terminal in the middle with speech-to-text overlay
                     ZStack(alignment: .top) {
-                        TerminalView(terminalController: $terminalController)
-                            .frame(minWidth: 600, minHeight: 400)
+                        TerminalView(
+                            terminalController: $terminalController,
+                            onOutput: { [weak contextMonitor] text in
+                                // Forward terminal output directly to this window's ContextMonitor
+                                contextMonitor?.receiveTerminalOutput(text)
+                            },
+                            onClaudeStarted: { [weak windowContext] workingDir in
+                                // Forward Claude started event to this window's context
+                                windowContext?.receiveClaudeStarted(workingDirectory: workingDir)
+                            }
+                        )
+                        .frame(minWidth: 600, minHeight: 400)
 
                     // Model download indicator (center)
-                    if speechToText.speechRecognition.isDownloadingModel {
+                    if sharedSpeechRecognition.isDownloadingModel {
                         ModelDownloadIndicator(
-                            progress: speechToText.speechRecognition.downloadProgress
+                            progress: sharedSpeechRecognition.downloadProgress
                         )
                     }
 
                     // Model warmup indicator (center)
-                    if speechToText.speechRecognition.isWarmingUp {
+                    if sharedSpeechRecognition.isWarmingUp {
                         ModelWarmupIndicator()
                     }
 
                     // Error banner (top)
-                    if let error = speechToText.currentError {
+                    if let error = speechCoordinator.currentError {
                         ErrorBanner(
                             error: error,
                             onDismiss: {
-                                speechToText.clearError()
+                                speechCoordinator.clearError()
                             },
                             onRetry: error.canRetry ? {
-                                speechToText.retryAfterError()
+                                speechCoordinator.retryAfterError()
                             } : nil
                         )
                         .zIndex(100) // Ensure it appears above other content
@@ -169,10 +192,10 @@ struct ContentView: View {
                         Spacer()
                         HStack {
                             Spacer()
-                            if speechToText.isRecording || speechToText.isTranscribing {
+                            if speechCoordinator.isRecording || speechCoordinator.isTranscribing {
                                 FalloutRecordingOverlay(
-                                    isRecording: speechToText.isRecording,
-                                    isTranscribing: speechToText.isTranscribing
+                                    isRecording: speechCoordinator.isRecording,
+                                    isTranscribing: speechCoordinator.isTranscribing
                                 )
                                 .padding(16)
                             }
@@ -180,14 +203,14 @@ struct ContentView: View {
                     }
 
                     // Radial menu overlay (full screen)
-                    if ps4Controller.radialMenuController.isVisible {
-                        RadialMenuView(controller: ps4Controller.radialMenuController)
+                    if ps4Coordinator.radialMenuController.isVisible {
+                        RadialMenuView(controller: ps4Coordinator.radialMenuController)
                             .zIndex(50) // Below error banner, above terminal
                     }
 
                     // Profile switcher overlay (full screen)
-                    if ps4Controller.profileSwitcherController.isVisible {
-                        ProfileSwitcherView(controller: ps4Controller.profileSwitcherController)
+                    if ps4Coordinator.profileSwitcherController.isVisible {
+                        ProfileSwitcherView(controller: ps4Coordinator.profileSwitcherController)
                             .zIndex(51) // Above radial menu
                     }
                 }
@@ -199,9 +222,9 @@ struct ContentView: View {
                             .frame(width: 1)
 
                         PS4ControllerView(
-                            monitor: ps4Controller.monitor,
-                            mapping: ps4Controller.mapping,
-                            controller: ps4Controller
+                            monitor: sharedMonitor,
+                            mapping: ps4Coordinator.mapping,
+                            profileManager: ps4Coordinator.radialMenuController.profileManager
                         )
                         .frame(width: 400)
                         .background(Color.Fallout.backgroundPanel)
@@ -227,31 +250,31 @@ struct ContentView: View {
                         }
                     }) {
                         VStack(spacing: 2) {
-                            Image(systemName: ps4Controller.monitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
+                            Image(systemName: sharedMonitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
                                 .font(.system(size: 22))
-                                .foregroundColor(ps4Controller.monitor.isConnected ? Color.Fallout.primary : Color.Fallout.tertiary)
-                                .opacity(ps4Controller.monitor.isConnected ? 1.0 : 0.4)
-                                .falloutGlow(radius: ps4Controller.monitor.isConnected ? 3 : 0)
+                                .foregroundColor(sharedMonitor.isConnected ? Color.Fallout.primary : Color.Fallout.tertiary)
+                                .opacity(sharedMonitor.isConnected ? 1.0 : 0.4)
+                                .falloutGlow(radius: sharedMonitor.isConnected ? 3 : 0)
 
                             // Battery indicator - always show, but disabled when not connected
                             PS4BatteryIndicator(
-                                level: ps4Controller.monitor.batteryLevel ?? 0,
-                                state: ps4Controller.monitor.batteryState,
-                                isConnected: ps4Controller.monitor.isConnected,
-                                batteryIsUnavailable: ps4Controller.monitor.batteryIsUnavailable
+                                level: sharedMonitor.batteryLevel ?? 0,
+                                state: sharedMonitor.batteryState,
+                                isConnected: sharedMonitor.isConnected,
+                                batteryIsUnavailable: sharedMonitor.batteryIsUnavailable
                             )
                         }
                     }
                     .buttonStyle(.plain)
                     .frame(width: 60)
-                    .animation(.easeInOut(duration: 0.3), value: ps4Controller.monitor.isConnected)
+                    .animation(.easeInOut(duration: 0.3), value: sharedMonitor.isConnected)
                     .help(batteryTooltip)
                     .onTapGesture(count: 2) {
                         // Double-tap to force battery check (for debugging)
                         print("ContentView: Manual battery check requested")
-                        if let level = ps4Controller.monitor.batteryLevel {
+                        if let level = sharedMonitor.batteryLevel {
                             print("ContentView: Current battery level: \(level) (\(Int(level * 100))%)")
-                            print("ContentView: Current battery state: \(ps4Controller.monitor.batteryState)")
+                            print("ContentView: Current battery state: \(sharedMonitor.batteryState)")
                         } else {
                             print("ContentView: Battery level is nil")
                         }
@@ -268,9 +291,9 @@ struct ContentView: View {
                             .disabled(!showPS4StatusBar)
                         Divider()
                         Button("Check Battery Status") {
-                            ps4Controller.monitor.checkBatteryStatus()
+                            sharedMonitor.checkBatteryStatus()
                         }
-                        .disabled(!ps4Controller.monitor.isConnected)
+                        .disabled(!sharedMonitor.isConnected)
                     }
                 }
                 .frame(height: 50)
@@ -284,7 +307,7 @@ struct ContentView: View {
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
         .sheet(isPresented: $showProjectLauncher) {
             ProjectLauncherView(
-                ps4Monitor: ps4Controller.monitor,
+                ps4Monitor: sharedMonitor,
                 onProjectSelected: { project in
                     selectedProject = project
                     launchProject(project)
@@ -308,24 +331,31 @@ struct ContentView: View {
             // against creating duplicate Combine subscriptions which cause memory leaks.
             guard subscriptionManager.cancellables.isEmpty else { return }
 
+            // Note: Window focus detection is handled by WindowFocusMonitor background view
+
+            // Wire up WindowContext terminal reference
+            windowContext.terminalController = terminalController
+
+            // Wire up ContextMonitor terminal reference for direct access
+            contextMonitor.terminalController = terminalController
+
             // FIX: Wire up AppCommandExecutor dependencies for direct access
             // This replaces the previous NotificationCenter-based approach with direct references,
             // making the code more testable and eliminating hidden coupling.
-            ps4Controller.appCommandExecutor.speechController = speechToText
-            ps4Controller.appCommandExecutor.ps4Controller = ps4Controller
-            ps4Controller.appCommandExecutor.terminalController = terminalController
-            ps4Controller.appCommandExecutor.contextMonitor = contextMonitor
+            ps4Coordinator.appCommandExecutor.speechCoordinator = speechCoordinator
+            ps4Coordinator.appCommandExecutor.terminalController = terminalController
+            ps4Coordinator.appCommandExecutor.contextMonitor = contextMonitor
 
             // CRITICAL FIX: Sync UI state with AppCommandExecutor
             // ContentView @State is the source of truth - always starts hidden (no persistence)
             // AppCommandExecutor should mirror these values, not override them
-            ps4Controller.appCommandExecutor.showPS4Panel = showPS4Controller
-            ps4Controller.appCommandExecutor.showPS4StatusBar = showPS4StatusBar
+            ps4Coordinator.appCommandExecutor.showPS4Panel = showPS4Controller
+            ps4Coordinator.appCommandExecutor.showPS4StatusBar = showPS4StatusBar
 
             // FIX: Bidirectional binding with weak captures to prevent retain cycles
             // Observe AppCommandExecutor state changes and update local @State
             // Skip the first emission to avoid overriding initial @State values
-            ps4Controller.appCommandExecutor.$showPS4Panel
+            ps4Coordinator.appCommandExecutor.$showPS4Panel
                 .dropFirst() // Skip initial value to preserve @State
                 .receive(on: DispatchQueue.main)
                 .sink { [weak subscriptionManager] newValue in
@@ -334,7 +364,7 @@ struct ContentView: View {
                 }
                 .store(in: &subscriptionManager.cancellables)
 
-            ps4Controller.appCommandExecutor.$showPS4StatusBar
+            ps4Coordinator.appCommandExecutor.$showPS4StatusBar
                 .dropFirst() // Skip initial value to preserve @State
                 .receive(on: DispatchQueue.main)
                 .sink { [weak subscriptionManager] newValue in
@@ -361,7 +391,13 @@ struct ContentView: View {
         .onChange(of: terminalController) { _, newController in
             // FIX: Update AppCommandExecutor's terminal controller when it becomes available
             // Terminal controller is set asynchronously after view initialization via binding
-            ps4Controller.appCommandExecutor.terminalController = newController
+            ps4Coordinator.appCommandExecutor.terminalController = newController
+
+            // Update WindowContext's terminal controller for multi-instance support
+            windowContext.terminalController = newController
+
+            // Update ContextMonitor's terminal controller for direct access
+            contextMonitor.terminalController = newController
         }
     }
 
@@ -384,7 +420,7 @@ struct ContentView: View {
     }
 
     var batteryTooltip: String {
-        return ps4Controller.monitor.connectionStatusDescription
+        return sharedMonitor.connectionStatusDescription
     }
 
     // MARK: - Project Launcher
@@ -596,6 +632,78 @@ struct SpeechStatusIndicator: View {
         .padding(.vertical, 6)
         .background(Color.black.opacity(0.75))
         .cornerRadius(20)
+    }
+}
+
+// MARK: - Window Focus Monitor
+
+/// NSViewRepresentable that monitors window focus changes for a specific window
+/// Used for multi-instance support to route hardware input to the correct window
+struct WindowFocusMonitor: NSViewRepresentable {
+    let windowContext: WindowContext
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowFocusMonitorView()
+        view.windowContext = windowContext
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let view = nsView as? WindowFocusMonitorView {
+            view.windowContext = windowContext
+        }
+    }
+
+    class WindowFocusMonitorView: NSView {
+        weak var windowContext: WindowContext?
+        private var becameKeyObserver: NSObjectProtocol?
+        private var resignedKeyObserver: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            // Clean up old observers
+            if let observer = becameKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = resignedKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+
+            guard let window = self.window else { return }
+
+            // Observe this specific window becoming key
+            becameKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.windowContext?.windowBecameKey()
+            }
+
+            // Observe this specific window resigning key
+            resignedKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.windowContext?.windowResignedKey()
+            }
+
+            // If this window is already key, notify immediately
+            if window.isKeyWindow {
+                windowContext?.windowBecameKey()
+            }
+        }
+
+        deinit {
+            if let observer = becameKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = resignedKeyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
     }
 }
 

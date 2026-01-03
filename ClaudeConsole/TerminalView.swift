@@ -21,6 +21,13 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     // Track the child process PID for cleanup
     private(set) var shellPID: pid_t?
 
+    // MARK: - Callbacks for Multi-Instance Support
+    /// Called when terminal receives output data (for ContextMonitor)
+    var onDataReceived: ((String) -> Void)?
+
+    /// Called when Claude Code is detected to have started (working directory available)
+    var onClaudeStarted: ((String) -> Void)?
+
     // Constants for buffer limits
     private static let maxOutputBufferSize = 2000  // Max chars for output buffer
     private static let maxPWDBufferSize = 5000     // Max chars for PWD buffer
@@ -366,7 +373,12 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         guard let text = String(bytes: slice, encoding: .utf8) else { return }
 
         // Post terminal output for ContextMonitor (on main thread to avoid issues)
-        DispatchQueue.main.async {
+        // Use callback if available, otherwise fall back to notification
+        DispatchQueue.main.async { [weak self] in
+            // Call the callback for window-scoped observers
+            self?.onDataReceived?(text)
+
+            // Also post notification for backwards compatibility
             NotificationCenter.default.post(
                 name: .terminalOutput,
                 object: nil,
@@ -425,7 +437,11 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if !trimmed.isEmpty && trimmed.hasPrefix("/") {
                     // Post notification on main thread
-                    DispatchQueue.main.async {
+                    DispatchQueue.main.async { [weak self] in
+                        // Call the callback for window-scoped observers
+                        self?.onClaudeStarted?(trimmed)
+
+                        // Also post notification for backwards compatibility
                         NotificationCenter.default.post(
                             name: .claudeCodeStarted,
                             object: nil,
@@ -498,7 +514,11 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         }
 
         // Post notification on main thread
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            // Call the callback for window-scoped observers
+            self?.onClaudeStarted?(workingDir)
+
+            // Also post notification for backwards compatibility
             NotificationCenter.default.post(
                 name: .claudeCodeStarted,
                 object: nil,
@@ -529,6 +549,13 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 struct TerminalView: NSViewRepresentable {
     @Binding var terminalController: LocalProcessTerminalView?
 
+    // MARK: - Callbacks for Multi-Instance Support
+    /// Called when terminal receives output data (optional, for window-scoped observers)
+    var onOutput: ((String) -> Void)?
+
+    /// Called when Claude Code starts (optional, for window-scoped observers)
+    var onClaudeStarted: ((String) -> Void)?
+
     func makeNSView(context: Context) -> MonitoredLocalProcessTerminalView {
         // Use a reasonable initial frame instead of .zero to help with coordinate system
         let initialFrame = NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -551,6 +578,10 @@ struct TerminalView: NSViewRepresentable {
         // Ensure proper autoresizing behavior
         terminalView.autoresizingMask = [.width, .height]
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Wire up callbacks for multi-instance support
+        terminalView.onDataReceived = onOutput
+        terminalView.onClaudeStarted = onClaudeStarted
 
         // Start interactive login shell (just like Terminal.app)
         // This will load .zshrc and give you full environment
@@ -577,6 +608,10 @@ struct TerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MonitoredLocalProcessTerminalView, context: Context) {
+        // Update callbacks if they've changed (SwiftUI may recreate the struct with new closures)
+        nsView.onDataReceived = onOutput
+        nsView.onClaudeStarted = onClaudeStarted
+
         // Update layout when SwiftUI view geometry changes
         // This ensures the terminal's coordinate system stays in sync
         DispatchQueue.main.async {

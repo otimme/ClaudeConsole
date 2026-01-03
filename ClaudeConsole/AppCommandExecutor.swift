@@ -21,10 +21,9 @@ import os.log
 class AppCommandExecutor: ObservableObject {
     // FIX: Added weak terminal controller reference for direct command execution
     // Weak references to avoid retain cycles
-    weak var speechController: SpeechToTextController?
-    weak var ps4Controller: PS4ControllerController?
-    weak var terminalController: LocalProcessTerminalView?  // NEW: Direct terminal access
-    weak var contextMonitor: ContextMonitor?  // NEW: For context stats refresh
+    weak var speechCoordinator: SpeechToTextCoordinator?
+    weak var terminalController: LocalProcessTerminalView?  // Direct terminal access
+    weak var contextMonitor: ContextMonitor?  // For context stats refresh
 
     // Published state for UI bindings
     @Published var showPS4Panel: Bool = false
@@ -78,9 +77,9 @@ class AppCommandExecutor: ObservableObject {
 
     /// Toggle speech-to-text recording (start if stopped, stop if recording)
     private func toggleSpeechToText() {
-        guard let speech = speechController else {
-            os_log("SpeechToTextController not available", log: .default, type: .error)
-            showNotification(title: "Speech-to-Text Error", body: "Speech controller not available")
+        guard let speech = speechCoordinator else {
+            os_log("SpeechToTextCoordinator not available", log: .default, type: .error)
+            showNotification(title: "Speech-to-Text Error", body: "Speech coordinator not available")
             return
         }
 
@@ -89,8 +88,8 @@ class AppCommandExecutor: ObservableObject {
 
     /// Stop speech-to-text recording (for push-to-talk release or explicit stop)
     private func stopSpeechToText() {
-        guard let speech = speechController else {
-            os_log("SpeechToTextController not available", log: .default, type: .error)
+        guard let speech = speechCoordinator else {
+            os_log("SpeechToTextCoordinator not available", log: .default, type: .error)
             return
         }
 
