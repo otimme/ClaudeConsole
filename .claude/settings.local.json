@@ -22,7 +22,8 @@
       "Bash(tee:*)",
       "Bash(defaults read:*)",
       "Bash(chmod:*)",
-      "Bash(/tmp/fix_text_macros.sh)"
+      "Bash(/tmp/fix_text_macros.sh)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
