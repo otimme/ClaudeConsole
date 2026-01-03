@@ -2,7 +2,7 @@
 //  ContextStatsView.swift
 //  ClaudeConsole
 //
-//  Display context usage statistics
+//  Display context usage statistics - Fallout Pip-Boy style
 //
 
 import SwiftUI
@@ -11,97 +11,108 @@ struct ContextStatsView: View {
     @ObservedObject var contextMonitor: ContextMonitor
 
     var body: some View {
-        HStack(spacing: 20) {
-            // Overall context usage
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Context Usage")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+        HStack(spacing: 12) {
+            // Context label with refresh
+            HStack(spacing: 4) {
+                Text("CTX")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(Color.Fallout.tertiary)
 
-                    Button(action: {
-                        contextMonitor.requestContextUpdate()
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Refresh context stats")
-
-                    Spacer()
-                    Text("\(contextMonitor.contextStats.totalTokens.formatted()) / \(contextMonitor.contextStats.maxTokens.formatted())")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundColor(.secondary)
+                Button(action: {
+                    contextMonitor.requestContextUpdate()
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 9))
+                        .foregroundColor(Color.Fallout.tertiary)
                 }
-                .frame(width: 240)
-
-                ProgressView(value: contextMonitor.contextStats.usedPercentage, total: 100)
-                    .tint(colorForPercentage(contextMonitor.contextStats.usedPercentage))
-
-                Text("\(Int(contextMonitor.contextStats.usedPercentage))% used")
-                    .font(.caption2)
-                    .foregroundColor(colorForPercentage(contextMonitor.contextStats.usedPercentage))
+                .buttonStyle(.plain)
+                .help("Refresh context stats")
             }
 
-            Divider()
-                .frame(height: 40)
+            // Segmented progress bar
+            HStack(spacing: 1) {
+                ForEach(0..<15, id: \.self) { index in
+                    let segmentThreshold = Double(index + 1) / 15.0 * 100
+                    let isFilled = contextMonitor.contextStats.usedPercentage >= segmentThreshold
 
-            // Breakdown
-            HStack(spacing: 15) {
-                StatPill(label: "System", value: contextMonitor.contextStats.systemPrompt + contextMonitor.contextStats.systemTools, color: .blue)
-                StatPill(label: "Agents", value: contextMonitor.contextStats.customAgents, color: .purple)
-                StatPill(label: "Messages", value: contextMonitor.contextStats.messages, color: .orange)
-                StatPill(label: "Buffer", value: contextMonitor.contextStats.autocompactBuffer, color: .gray)
-                StatPill(label: "Free", value: contextMonitor.contextStats.freeSpace, color: .green)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isFilled ? colorForPercentage(contextMonitor.contextStats.usedPercentage) : Color.Fallout.inactive)
+                        .frame(width: 6, height: 10)
+                }
             }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
 
-    private func colorForPercentage(_ percentage: Double) -> Color {
-        if percentage >= 90 {
-            return .red
-        } else if percentage >= 70 {
-            return .orange
-        } else {
-            return .green
-        }
-    }
-}
+            // Percentage and token count
+            Text("\(Int(contextMonitor.contextStats.usedPercentage))%")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(colorForPercentage(contextMonitor.contextStats.usedPercentage))
 
-struct StatPill: View {
-    let label: String
-    let value: Int
-    let color: Color
+            Text("\(formatTokens(contextMonitor.contextStats.totalTokens))/\(formatTokens(contextMonitor.contextStats.maxTokens))")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(Color.Fallout.tertiary)
 
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            Text(formatTokens(value))
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(color)
+            Rectangle()
+                .fill(Color.Fallout.borderDim)
+                .frame(width: 1, height: 30)
+
+            // Compact breakdown
+            HStack(spacing: 8) {
+                CompactStatItem(label: "SYS", value: contextMonitor.contextStats.systemPrompt + contextMonitor.contextStats.systemTools)
+                CompactStatItem(label: "MSG", value: contextMonitor.contextStats.messages)
+                CompactStatItem(label: "FREE", value: contextMonitor.contextStats.freeSpace, highlight: true)
+            }
+
+            Spacer()
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 12)
         .padding(.vertical, 4)
-        .background(color.opacity(0.1))
-        .cornerRadius(6)
     }
 
     private func formatTokens(_ tokens: Int) -> String {
         if tokens >= 1000 {
-            let k = Double(tokens) / 1000.0
-            return String(format: "%.1fk", k)
-        } else {
-            return "\(tokens)"
+            return String(format: "%.0fk", Double(tokens) / 1000.0)
         }
+        return "\(tokens)"
+    }
+
+    private func colorForPercentage(_ percentage: Double) -> Color {
+        if percentage >= 90 {
+            return Color.Fallout.danger
+        } else if percentage >= 70 {
+            return Color.Fallout.warning
+        } else {
+            return Color.Fallout.primary
+        }
+    }
+}
+
+// Compact stat item for footer
+struct CompactStatItem: View {
+    let label: String
+    let value: Int
+    var highlight: Bool = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(Color.Fallout.tertiary)
+
+            Text(formatTokens(value))
+                .font(.system(size: 10, weight: highlight ? .medium : .regular, design: .monospaced))
+                .foregroundColor(highlight ? Color.Fallout.primary : Color.Fallout.secondary)
+        }
+    }
+
+    private func formatTokens(_ tokens: Int) -> String {
+        if tokens >= 1000 {
+            return String(format: "%.1fk", Double(tokens) / 1000.0)
+        }
+        return "\(tokens)"
     }
 }
 
 #Preview {
     ContextStatsView(contextMonitor: ContextMonitor())
         .frame(width: 800)
+        .background(Color.Fallout.backgroundAlt)
 }

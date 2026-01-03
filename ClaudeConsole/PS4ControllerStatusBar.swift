@@ -4,6 +4,7 @@
 //
 //  Compact status bar showing PlayStation controller button mappings
 //  Supports both DualShock 4 (PS4) and DualSense (PS5) controllers
+//  Fallout Pip-Boy style
 //
 
 import SwiftUI
@@ -17,90 +18,97 @@ struct PS4ControllerStatusBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 // Connection indicator
-                ConnectionIndicator(isConnected: monitor.isConnected)
+                FalloutConnectionIndicator(isConnected: monitor.isConnected)
 
-                Divider()
-                    .frame(height: 20)
+                FalloutDivider(.vertical)
+                    .frame(height: 35)
                     .padding(.horizontal, 4)
 
                 // Face buttons group
-                ButtonGroup(title: "Face", buttons: [.cross, .circle, .square, .triangle],
+                FalloutButtonGroup(title: "FACE", buttons: [.cross, .circle, .square, .triangle],
                            monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
 
-                Divider()
-                    .frame(height: 20)
+                FalloutDivider(.vertical)
+                    .frame(height: 35)
                     .padding(.horizontal, 4)
 
                 // D-Pad group
-                ButtonGroup(title: "D-Pad", buttons: [.dpadUp, .dpadDown, .dpadLeft, .dpadRight],
+                FalloutButtonGroup(title: "D-PAD", buttons: [.dpadUp, .dpadDown, .dpadLeft, .dpadRight],
                            monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
 
-                Divider()
-                    .frame(height: 20)
+                FalloutDivider(.vertical)
+                    .frame(height: 35)
                     .padding(.horizontal, 4)
 
                 // Shoulders group
-                ButtonGroup(title: "Shoulders", buttons: [.l1, .r1, .l2, .r2],
+                FalloutButtonGroup(title: "SHOULDER", buttons: [.l1, .r1, .l2, .r2],
                            monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
 
-                Divider()
-                    .frame(height: 20)
+                FalloutDivider(.vertical)
+                    .frame(height: 35)
                     .padding(.horizontal, 4)
 
                 // Sticks group
-                ButtonGroup(title: "Sticks", buttons: [.l3, .r3],
+                FalloutButtonGroup(title: "STICKS", buttons: [.l3, .r3],
                            monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
 
-                Divider()
-                    .frame(height: 20)
+                FalloutDivider(.vertical)
+                    .frame(height: 35)
                     .padding(.horizontal, 4)
 
                 // Menu buttons group - changes based on controller type
                 if monitor.controllerType == .dualSense {
-                    // DualSense: Options, Create, Touchpad, Mute
-                    ButtonGroup(title: "Menu", buttons: [.options, .create, .touchpad, .mute],
+                    FalloutButtonGroup(title: "MENU", buttons: [.options, .create, .touchpad, .mute],
                                monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
                 } else {
-                    // DualShock 4: Options, Share, Touchpad
-                    ButtonGroup(title: "Menu", buttons: [.options, .share, .touchpad],
+                    FalloutButtonGroup(title: "MENU", buttons: [.options, .share, .touchpad],
                                monitor: monitor, mapping: mapping, hoveredButton: $hoveredButton)
                 }
             }
             .padding(.horizontal, 8)
         }
-        .frame(height: 55)
-        .background(Color(NSColor.controlBackgroundColor))
+        .frame(height: 60)
+        .background(Color.Fallout.backgroundAlt)
         .overlay(
-            // Bottom border
             Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color.gray.opacity(0.3)),
+                .fill(Color.Fallout.border)
+                .frame(height: 1),
             alignment: .bottom
         )
     }
 }
 
-// Connection status indicator
-struct ConnectionIndicator: View {
+// Fallout-styled connection status indicator
+struct FalloutConnectionIndicator: View {
     let isConnected: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isConnected ? Color.Fallout.primary : Color.Fallout.inactive)
+                .frame(width: 8, height: 8)
+                .shadow(color: isConnected ? Color.Fallout.glow.opacity(0.6) : .clear, radius: 4)
+
             Image(systemName: isConnected ? "gamecontroller.fill" : "gamecontroller")
                 .font(.system(size: 16))
-                .foregroundColor(isConnected ? .green : .gray)
+                .foregroundColor(isConnected ? Color.Fallout.primary : Color.Fallout.tertiary)
+                .falloutGlow(radius: isConnected ? 2 : 0)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isConnected ? Color.green.opacity(0.1) : Color.gray.opacity(0.1))
+            BeveledRectangle(cornerSize: 4)
+                .fill(isConnected ? Color.Fallout.primary.opacity(0.1) : Color.Fallout.inactive.opacity(0.3))
+        )
+        .overlay(
+            BeveledRectangle(cornerSize: 4)
+                .stroke(isConnected ? Color.Fallout.border : Color.Fallout.borderDim, lineWidth: 1)
         )
     }
 }
 
-// Group of related buttons
-struct ButtonGroup: View {
+// Fallout-styled button group
+struct FalloutButtonGroup: View {
     let title: String
     let buttons: [PS4Button]
     @ObservedObject var monitor: PS4ControllerMonitor
@@ -108,14 +116,15 @@ struct ButtonGroup: View {
     @Binding var hoveredButton: PS4Button?
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 4) {
             Text(title)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.tertiary)
+                .tracking(1)
 
             HStack(spacing: 4) {
                 ForEach(buttons, id: \.self) { button in
-                    CompactButtonView(
+                    FalloutCompactButtonView(
                         button: button,
                         isPressed: monitor.pressedButtons.contains(button),
                         keyMapping: mapping.getCommand(for: button),
@@ -130,45 +139,46 @@ struct ButtonGroup: View {
     }
 }
 
-// Individual button in the status bar
-struct CompactButtonView: View {
+// Fallout-styled individual button in the status bar
+struct FalloutCompactButtonView: View {
     let button: PS4Button
     let isPressed: Bool
     let keyMapping: KeyCommand?
     let isHovered: Bool
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             // Button symbol
             Text(buttonSymbol)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(isPressed ? .white : buttonColor)
+                .font(.Fallout.caption)
+                .fontWeight(.bold)
+                .foregroundColor(isPressed ? Color.Fallout.background : Color.Fallout.primary)
                 .frame(width: buttonWidth, height: 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isPressed ? buttonColor : buttonColor.opacity(0.15))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(buttonColor.opacity(0.4), lineWidth: 1)
-                        )
+                    BeveledRectangle(cornerSize: 3)
+                        .fill(isPressed ? Color.Fallout.primary : Color.Fallout.inactive)
                 )
-                .shadow(color: isPressed ? buttonColor.opacity(0.6) : .clear,
-                       radius: isPressed ? 4 : 0)
-                .scaleEffect(isPressed ? 1.15 : 1.0)
+                .overlay(
+                    BeveledRectangle(cornerSize: 3)
+                        .stroke(Color.Fallout.border.opacity(isPressed ? 1 : 0.4), lineWidth: 1)
+                )
+                .shadow(color: isPressed ? Color.Fallout.glow.opacity(0.6) : .clear, radius: 4)
+                .scaleEffect(isPressed ? 1.1 : 1.0)
                 .animation(.easeInOut(duration: 0.1), value: isPressed)
 
-            // Key mapping with better contrast
+            // Key mapping
             Text(keyMapping?.displayString ?? "—")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(isPressed ? buttonColor : Color.primary.opacity(0.85))
+                .font(.Fallout.caption)
+                .foregroundColor(isPressed ? Color.Fallout.primary : Color.Fallout.secondary)
+                .falloutGlow(radius: isPressed ? 2 : 0)
                 .padding(.horizontal, 4)
-                .padding(.vertical, 1)
+                .padding(.vertical, 2)
                 .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(NSColor.controlBackgroundColor))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.Fallout.background)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 3)
-                                .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: 2)
+                                .stroke(Color.Fallout.borderDim, lineWidth: 0.5)
                         )
                 )
                 .lineLimit(1)
@@ -210,22 +220,6 @@ struct CompactButtonView: View {
         }
     }
 
-    var buttonColor: Color {
-        switch button {
-        case .cross: return .blue
-        case .circle: return .red
-        case .square: return .pink
-        case .triangle: return .green
-        case .l1, .r1, .l2, .r2: return .orange
-        case .dpadUp, .dpadDown, .dpadLeft, .dpadRight: return .gray
-        case .l3, .r3: return .purple
-        case .options, .share, .create: return .cyan
-        case .touchpad: return .indigo
-        case .psButton: return .blue
-        case .mute: return .teal
-        }
-    }
-
     var helpText: String {
         let buttonName = button.displayName
         let mapping = keyMapping?.displayString ?? "Not mapped"
@@ -233,7 +227,7 @@ struct CompactButtonView: View {
     }
 }
 
-// Alternative minimalist status bar
+// Fallout-styled minimalist status bar
 struct PS4ControllerMiniBar: View {
     @ObservedObject var monitor: PS4ControllerMonitor
     @ObservedObject var mapping: PS4ButtonMapping
@@ -243,13 +237,18 @@ struct PS4ControllerMiniBar: View {
         HStack(spacing: 8) {
             // Connection status
             HStack(spacing: 4) {
+                Circle()
+                    .fill(monitor.isConnected ? Color.Fallout.primary : Color.Fallout.inactive)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: monitor.isConnected ? Color.Fallout.glow.opacity(0.5) : .clear, radius: 3)
+
                 Image(systemName: monitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
                     .font(.system(size: 12))
-                    .foregroundColor(monitor.isConnected ? .green : .gray)
+                    .foregroundColor(monitor.isConnected ? Color.Fallout.primary : Color.Fallout.tertiary)
             }
 
             if monitor.isConnected {
-                Divider()
+                FalloutDivider(.vertical)
                     .frame(height: 16)
 
                 // Currently pressed buttons
@@ -258,28 +257,30 @@ struct PS4ControllerMiniBar: View {
                         ForEach(Array(monitor.pressedButtons), id: \.self) { button in
                             HStack(spacing: 2) {
                                 Text(button.rawValue)
-                                    .font(.system(size: 10, weight: .bold))
+                                    .font(.Fallout.caption)
+                                    .fontWeight(.bold)
                                 if let command = mapping.getCommand(for: button) {
                                     Text("→")
                                         .font(.system(size: 9))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(Color.Fallout.secondary)
                                     Text(command.displayString)
-                                        .font(.system(size: 9, design: .monospaced))
+                                        .font(.Fallout.caption)
                                 }
                             }
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(buttonBackgroundColor(for: button))
+                                BeveledRectangle(cornerSize: 3)
+                                    .fill(Color.Fallout.primary)
                             )
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.Fallout.background)
                         }
                     }
                 } else {
-                    Text("Press any button")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                    Text("AWAITING INPUT")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.tertiary)
+                        .tracking(1)
                 }
 
                 Spacer()
@@ -288,30 +289,20 @@ struct PS4ControllerMiniBar: View {
                 Button(action: { showExpanded.toggle() }) {
                     Image(systemName: showExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10))
+                        .foregroundColor(Color.Fallout.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Show/hide button mappings")
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(Color(NSColor.controlBackgroundColor))
+        .padding(.vertical, 6)
+        .background(Color.Fallout.backgroundAlt)
         .overlay(
             Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color.gray.opacity(0.3)),
+                .fill(Color.Fallout.border)
+                .frame(height: 1),
             alignment: .bottom
         )
-    }
-
-    func buttonBackgroundColor(for button: PS4Button) -> Color {
-        switch button {
-        case .cross: return .blue
-        case .circle: return .red
-        case .square: return .pink
-        case .triangle: return .green
-        case .l1, .r1, .l2, .r2: return .orange
-        default: return .gray
-        }
     }
 }
