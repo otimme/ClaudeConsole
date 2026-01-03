@@ -31,7 +31,7 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     /// Reference to this window's terminal controller
     @Published var terminalController: LocalProcessTerminalView?
 
-    // MARK: - Per-Window Components (to be wired up externally)
+    // MARK: - Per-Window Components
 
     /// Callback when terminal output is received (for ContextMonitor)
     var onTerminalOutput: ((String) -> Void)?
@@ -39,13 +39,27 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     /// Callback when Claude Code starts (working directory detected)
     var onClaudeStarted: ((String) -> Void)?
 
-    // MARK: - Speech-to-Text State (observed from SharedResourceManager)
+    // MARK: - Per-Window Coordinators
 
-    /// Whether recording is in progress (from shared audio recorder)
-    @Published var isRecording: Bool = false
+    /// PS4/PS5 controller coordinator for this window
+    lazy var ps4Coordinator: PS4ControllerCoordinator = {
+        let coordinator = PS4ControllerCoordinator(windowID: windowID)
+        coordinator.speechCoordinator = speechCoordinator
+        return coordinator
+    }()
 
-    /// Whether transcription is in progress (from shared speech recognition)
-    @Published var isTranscribing: Bool = false
+    /// Speech-to-text coordinator for this window
+    lazy var speechCoordinator: SpeechToTextCoordinator = {
+        SpeechToTextCoordinator(windowID: windowID)
+    }()
+
+    // MARK: - Published State (forwarded from coordinators)
+
+    /// Whether recording is in progress
+    var isRecording: Bool { speechCoordinator.isRecording }
+
+    /// Whether transcription is in progress
+    var isTranscribing: Bool { speechCoordinator.isTranscribing }
 
     // MARK: - Private
 
@@ -60,8 +74,8 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
         // Register with SharedResourceManager
         shared.registerWindow(id: windowID, coordinator: self)
 
-        // Observe shared audio/speech state
-        setupSharedStateObservers()
+        // Set up coordinator wiring
+        setupCoordinators()
 
         Self.logger.info("WindowContext created: \(self.windowID)")
     }
@@ -86,42 +100,31 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
         isFocused = false
     }
 
-    // MARK: - Shared State Observers
+    // MARK: - Coordinator Setup
 
-    private func setupSharedStateObservers() {
-        // Mirror shared audio recorder's recording state
-        shared.audioRecorder.$isRecording
+    private func setupCoordinators() {
+        // Wire terminal controller to coordinators when it's set
+        $terminalController
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording in
-                // Only update if this window is focused
-                guard let self = self, self.isFocused else { return }
-                self.isRecording = isRecording
-            }
-            .store(in: &cancellables)
-
-        // Mirror shared speech recognition's transcribing state
-        shared.speechRecognition.$isTranscribing
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isTranscribing in
-                // Only update if this window is focused
-                guard let self = self, self.isFocused else { return }
-                self.isTranscribing = isTranscribing
-            }
-            .store(in: &cancellables)
-
-        // Update recording/transcribing state when focus changes
-        $isFocused
-            .sink { [weak self] isFocused in
+            .sink { [weak self] terminal in
                 guard let self = self else { return }
-                if isFocused {
-                    // Sync with current shared state
-                    self.isRecording = self.shared.audioRecorder.isRecording
-                    self.isTranscribing = self.shared.speechRecognition.isTranscribing
-                } else {
-                    // Clear state when losing focus
-                    self.isRecording = false
-                    self.isTranscribing = false
-                }
+                self.ps4Coordinator.terminalController = terminal
+                self.speechCoordinator.terminalController = terminal
+            }
+            .store(in: &cancellables)
+
+        // Forward coordinator state changes to trigger view updates
+        speechCoordinator.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        ps4Coordinator.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
             }
             .store(in: &cancellables)
     }
@@ -135,7 +138,7 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
         }
 
         Self.logger.debug("Starting speech recording for window: \(self.windowID)")
-        _ = shared.startRecording()
+        speechCoordinator.handleRecordingStarted()
     }
 
     func handleSpeechRecordingStopped() {
@@ -145,68 +148,32 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
         }
 
         Self.logger.debug("Stopping speech recording for window: \(self.windowID)")
-
-        guard let audioURL = shared.stopRecording() else {
-            Self.logger.warning("No audio URL returned from recording")
-            return
-        }
-
-        // Transcribe and insert into terminal
-        Task {
-            if let transcription = await shared.transcribe(audioURL: audioURL) {
-                await insertTextIntoTerminal(transcription)
-            }
-            shared.cleanupRecording(at: audioURL)
-        }
+        speechCoordinator.handleRecordingStopped()
     }
 
     func handlePS4ButtonPressed(_ button: PS4Button) {
         guard isFocused else { return }
 
         Self.logger.debug("PS4 button pressed: \(button.rawValue) for window: \(self.windowID)")
-
-        // Post notification for existing PS4ControllerController to handle
-        // This maintains backwards compatibility during migration
-        NotificationCenter.default.post(
-            name: .ps4ButtonPressed,
-            object: nil,
-            userInfo: ["button": button, "windowID": windowID]
-        )
+        ps4Coordinator.handleButtonPressed(button)
     }
 
     func handlePS4ButtonReleased(_ button: PS4Button) {
         guard isFocused else { return }
 
         Self.logger.debug("PS4 button released: \(button.rawValue) for window: \(self.windowID)")
-
-        // Post notification for existing PS4ControllerController to handle
-        NotificationCenter.default.post(
-            name: .ps4ButtonReleased,
-            object: nil,
-            userInfo: ["button": button, "windowID": windowID]
-        )
+        ps4Coordinator.handleButtonReleased(button)
     }
 
     func handleLeftStickChanged(x: Float, y: Float) {
-        // Forward to any interested observers
-        // Default implementation does nothing
+        // Analog stick handled by PS4ControllerCoordinator's Combine observers
     }
 
     func handleRightStickChanged(x: Float, y: Float) {
-        // Forward to any interested observers
-        // Default implementation does nothing
+        // Analog stick handled by PS4ControllerCoordinator's Combine observers
     }
 
     // MARK: - Terminal Integration
-
-    @MainActor
-    private func insertTextIntoTerminal(_ text: String) {
-        guard let terminal = terminalController, !text.isEmpty else { return }
-
-        if let data = text.data(using: .utf8) {
-            terminal.send(data: ArraySlice(data))
-        }
-    }
 
     /// Forward terminal output to observers (called by TerminalView)
     func receiveTerminalOutput(_ text: String) {
@@ -219,9 +186,3 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     }
 }
 
-// MARK: - Notification Names for PS4 Button Events (temporary, for migration)
-
-extension Notification.Name {
-    static let ps4ButtonPressed = Notification.Name("ps4ButtonPressed")
-    static let ps4ButtonReleased = Notification.Name("ps4ButtonReleased")
-}

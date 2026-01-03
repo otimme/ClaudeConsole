@@ -27,6 +27,11 @@ class RadialMenuController: ObservableObject {
 
     let profileManager = RadialMenuProfileManager()
 
+    // MARK: - Action Callback
+
+    /// Callback invoked when an action is selected from the radial menu
+    var onActionSelected: ((ButtonAction) -> Void)?
+
     // MARK: - Menu Types
 
     enum MenuType {
@@ -173,13 +178,8 @@ class RadialMenuController: ObservableObject {
         // Set executing flag to prevent double-execution
         isExecuting = true
 
-        // Notify delegate to execute action
-        // This will be handled by PS4ControllerController
-        NotificationCenter.default.post(
-            name: .radialMenuActionSelected,
-            object: nil,
-            userInfo: ["action": action]
-        )
+        // Execute action via callback
+        onActionSelected?(action)
 
         // Reset flag after brief delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -194,8 +194,3 @@ class RadialMenuController: ObservableObject {
     }
 }
 
-// MARK: - Notification Name
-
-extension Notification.Name {
-    static let radialMenuActionSelected = Notification.Name("radialMenuActionSelected")
-}

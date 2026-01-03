@@ -112,16 +112,9 @@ class PS4ControllerController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Listen for radial menu action selections
-        NotificationCenter.default.addObserver(
-            forName: .radialMenuActionSelected,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self = self else { return }
-            if let action = notification.userInfo?["action"] as? ButtonAction {
-                self.executeButtonAction(action)
-            }
+        // Wire up radial menu action callback
+        radialMenuController.onActionSelected = { [weak self] action in
+            self?.executeButtonAction(action)
         }
 
         // Monitor right analog stick input for radial menu
