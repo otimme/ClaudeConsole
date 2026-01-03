@@ -140,8 +140,10 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     private lazy var dropOverlay: NSView = {
         let overlay = NSView(frame: bounds)
         overlay.wantsLayer = true
-        overlay.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.1).cgColor
-        overlay.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+        // Fallout green drop overlay
+        let falloutGreen = NSColor(red: 0.08, green: 1.0, blue: 0.0, alpha: 1.0)
+        overlay.layer?.backgroundColor = falloutGreen.withAlphaComponent(0.1).cgColor
+        overlay.layer?.borderColor = falloutGreen.withAlphaComponent(0.6).cgColor
         overlay.layer?.borderWidth = 3
         overlay.layer?.cornerRadius = 4
         overlay.isHidden = true
@@ -440,12 +442,19 @@ struct TerminalView: NSViewRepresentable {
         let initialFrame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let terminalView = MonitoredLocalProcessTerminalView(frame: initialFrame)
 
-        // Configure terminal appearance
+        // Configure terminal appearance - Fallout Pip-Boy style
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
-        // Set terminal colors (default dark theme)
-        terminalView.nativeForegroundColor = NSColor.textColor
-        terminalView.nativeBackgroundColor = NSColor.textBackgroundColor
+        // Set terminal colors - Fallout phosphor green on dark background
+        // Primary green: #14FF00 (20, 255, 0)
+        // Background: #0A0F08 (10, 15, 8)
+        let falloutGreen = NSColor(red: 20/255, green: 255/255, blue: 0/255, alpha: 1.0)
+        let falloutBackground = NSColor(red: 10/255, green: 15/255, blue: 8/255, alpha: 1.0)
+        terminalView.nativeForegroundColor = falloutGreen
+        terminalView.nativeBackgroundColor = falloutBackground
+
+        // Set cursor color to match theme
+        terminalView.caretColor = falloutGreen
 
         // Ensure proper autoresizing behavior
         terminalView.autoresizingMask = [.width, .height]

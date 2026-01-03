@@ -2,7 +2,7 @@
 //  RealUsageStatsView.swift
 //  ClaudeConsole
 //
-//  Display real usage limits from /usage command
+//  Display real usage limits from /usage command - Fallout Pip-Boy style
 //
 
 import SwiftUI
@@ -11,106 +11,118 @@ struct RealUsageStatsView: View {
     @ObservedObject var usageMonitor: UsageMonitor
 
     var body: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: 16) {
             // Status Indicator
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .padding(.leading, 4)
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: statusColor.opacity(0.8), radius: 2)
+
+                Text(statusText)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(Color.Fallout.tertiary)
+            }
+            .frame(width: 40)
 
             // Current Session (Daily)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Current Session")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(usageMonitor.usageStats.dailyTokensUsed)%")
-                        .font(.caption)
-                        .foregroundColor(colorForPercentage(Double(usageMonitor.usageStats.dailyTokensUsed)))
-                }
-                .frame(width: 150)
+            CompactUsageStatPanel(
+                title: "SESSION",
+                percentage: usageMonitor.usageStats.dailyTokensUsed
+            )
 
-                ProgressView(value: Double(usageMonitor.usageStats.dailyTokensUsed), total: 100)
-                    .tint(colorForPercentage(Double(usageMonitor.usageStats.dailyTokensUsed)))
-
-                Text("Resets daily")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-
-            Divider()
-                .frame(height: 30)
+            Rectangle()
+                .fill(Color.Fallout.borderDim)
+                .frame(width: 1, height: 30)
 
             // Weekly Usage (All Models)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Weekly (All Models)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(usageMonitor.usageStats.weeklyTokensUsed)%")
-                        .font(.caption)
-                        .foregroundColor(colorForPercentage(Double(usageMonitor.usageStats.weeklyTokensUsed)))
-                }
-                .frame(width: 150)
+            CompactUsageStatPanel(
+                title: "WEEKLY",
+                percentage: usageMonitor.usageStats.weeklyTokensUsed
+            )
 
-                ProgressView(value: Double(usageMonitor.usageStats.weeklyTokensUsed), total: 100)
-                    .tint(colorForPercentage(Double(usageMonitor.usageStats.weeklyTokensUsed)))
-
-                Text("Resets weekly")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-
-            Divider()
-                .frame(height: 30)
+            Rectangle()
+                .fill(Color.Fallout.borderDim)
+                .frame(width: 1, height: 30)
 
             // Weekly Sonnet Usage
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Weekly (Sonnet)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(usageMonitor.usageStats.sonnetTokensUsed)%")
-                        .font(.caption)
-                        .foregroundColor(colorForPercentage(Double(usageMonitor.usageStats.sonnetTokensUsed)))
-                }
-                .frame(width: 150)
+            CompactUsageStatPanel(
+                title: "SONNET",
+                percentage: usageMonitor.usageStats.sonnetTokensUsed
+            )
 
-                ProgressView(value: Double(usageMonitor.usageStats.sonnetTokensUsed), total: 100)
-                    .tint(colorForPercentage(Double(usageMonitor.usageStats.sonnetTokensUsed)))
-
-                Text("Sonnet only")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
+            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
-    private func colorForPercentage(_ percentage: Double) -> Color {
-        if percentage >= 90 {
-            return .red
-        } else if percentage >= 70 {
-            return .orange
-        } else {
-            return .green
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
     }
 
     private var statusColor: Color {
         switch usageMonitor.fetchStatus {
         case .idle:
-            return .gray
+            return Color.Fallout.tertiary
         case .fetching:
-            return .green
+            return Color.Fallout.primary
         case .success:
-            return .green
+            return Color.Fallout.primary
         case .failed:
-            return .red
+            return Color.Fallout.danger
+        }
+    }
+
+    private var statusText: String {
+        switch usageMonitor.fetchStatus {
+        case .idle:
+            return "IDLE"
+        case .fetching:
+            return "SYNC"
+        case .success:
+            return "LIVE"
+        case .failed:
+            return "ERR"
+        }
+    }
+}
+
+// Compact usage stat panel with Fallout styling
+struct CompactUsageStatPanel: View {
+    let title: String
+    let percentage: Int
+
+    private var fillColor: Color {
+        if percentage >= 90 {
+            return Color.Fallout.danger
+        } else if percentage >= 70 {
+            return Color.Fallout.warning
+        } else {
+            return Color.Fallout.primary
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Title
+            Text(title)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(Color.Fallout.tertiary)
+
+            // Segmented progress bar
+            HStack(spacing: 1) {
+                ForEach(0..<10, id: \.self) { index in
+                    let segmentThreshold = Double(index + 1) / 10.0 * 100
+                    let isFilled = Double(percentage) >= segmentThreshold
+
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isFilled ? fillColor : Color.Fallout.inactive)
+                        .frame(width: 8, height: 10)
+                }
+            }
+
+            // Percentage
+            Text("\(percentage)%")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(fillColor)
+                .frame(width: 32, alignment: .trailing)
         }
     }
 }
@@ -118,4 +130,5 @@ struct RealUsageStatsView: View {
 #Preview {
     RealUsageStatsView(usageMonitor: UsageMonitor())
         .frame(width: 700)
+        .background(Color.Fallout.backgroundAlt)
 }

@@ -86,180 +86,201 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // PS4 Controller status bar at the very top (only when connected)
-            if showPS4StatusBar && ps4Controller.monitor.isConnected {
-                Group {
-                    if useCompactStatusBar {
-                        PS4ControllerMiniBar(
-                            monitor: ps4Controller.monitor,
-                            mapping: ps4Controller.mapping
-                        )
-                    } else {
-                        PS4ControllerStatusBar(
-                            monitor: ps4Controller.monitor,
-                            mapping: ps4Controller.mapping
-                        )
-                    }
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .contextMenu {
-                    Button(useCompactStatusBar ? "Show Full Status Bar" : "Show Compact Status Bar") {
-                        useCompactStatusBar.toggle()
-                    }
-                    Divider()
-                    Button("Hide PS4 Status Bar") {
-                        showPS4StatusBar = false
-                    }
-                }
-            }
+        ZStack {
+            // Fallout background
+            Color.Fallout.background
+                .ignoresSafeArea()
 
-            // Real usage stats from /usage command
-            RealUsageStatsView(usageMonitor: usageMonitor)
-                .frame(height: 70)
-                .background(Color(NSColor.controlBackgroundColor))
+            VStack(spacing: 0) {
+                // Fallout-style status bar at the very top
+                FalloutStatusBar(title: "CLAUDE CONSOLE", showIndicators: true)
 
-            Divider()
-
-            // Main content area with terminal and optional PS4 controller panel
-            HStack(spacing: 0) {
-                // Terminal in the middle with speech-to-text overlay
-                ZStack(alignment: .top) {
-                    TerminalView(terminalController: $terminalController)
-                        .frame(minWidth: 600, minHeight: 400)
-
-                // Model download indicator (center)
-                if speechToText.speechRecognition.isDownloadingModel {
-                    ModelDownloadIndicator(
-                        progress: speechToText.speechRecognition.downloadProgress
-                    )
-                }
-
-                // Model warmup indicator (center)
-                if speechToText.speechRecognition.isWarmingUp {
-                    ModelWarmupIndicator()
-                }
-
-                // Error banner (top)
-                if let error = speechToText.currentError {
-                    ErrorBanner(
-                        error: error,
-                        onDismiss: {
-                            speechToText.clearError()
-                        },
-                        onRetry: error.canRetry ? {
-                            speechToText.retryAfterError()
-                        } : nil
-                    )
-                    .zIndex(100) // Ensure it appears above other content
-                }
-
-                // Speech-to-text status indicator (bottom-right)
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        if speechToText.isRecording || speechToText.isTranscribing {
-                            SpeechStatusIndicator(
-                                isRecording: speechToText.isRecording,
-                                isTranscribing: speechToText.isTranscribing
+                // PS4 Controller status bar (only when connected)
+                if showPS4StatusBar && ps4Controller.monitor.isConnected {
+                    Group {
+                        if useCompactStatusBar {
+                            PS4ControllerMiniBar(
+                                monitor: ps4Controller.monitor,
+                                mapping: ps4Controller.mapping
                             )
-                            .padding(16)
+                        } else {
+                            PS4ControllerStatusBar(
+                                monitor: ps4Controller.monitor,
+                                mapping: ps4Controller.mapping
+                            )
+                        }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .contextMenu {
+                        Button(useCompactStatusBar ? "Show Full Status Bar" : "Show Compact Status Bar") {
+                            useCompactStatusBar.toggle()
+                        }
+                        Divider()
+                        Button("Hide PS4 Status Bar") {
+                            showPS4StatusBar = false
                         }
                     }
                 }
 
-                // Radial menu overlay (full screen)
-                if ps4Controller.radialMenuController.isVisible {
-                    RadialMenuView(controller: ps4Controller.radialMenuController)
-                        .zIndex(50) // Below error banner, above terminal
-                }
+                // Real usage stats from /usage command
+                RealUsageStatsView(usageMonitor: usageMonitor)
+                    .frame(height: 50)
+                    .background(Color.Fallout.backgroundAlt)
 
-                // Profile switcher overlay (full screen)
-                if ps4Controller.profileSwitcherController.isVisible {
-                    ProfileSwitcherView(controller: ps4Controller.profileSwitcherController)
-                        .zIndex(51) // Above radial menu
-                }
-            }
+                Rectangle()
+                    .fill(Color.Fallout.border)
+                    .frame(height: 1)
 
-                // PS4 Controller panel (collapsible)
-                if showPS4Controller {
-                    Divider()
+                // Main content area with terminal and optional PS4 controller panel
+                HStack(spacing: 0) {
+                    // Terminal in the middle with speech-to-text overlay
+                    ZStack(alignment: .top) {
+                        TerminalView(terminalController: $terminalController)
+                            .frame(minWidth: 600, minHeight: 400)
 
-                    PS4ControllerView(
-                        monitor: ps4Controller.monitor,
-                        mapping: ps4Controller.mapping,
-                        controller: ps4Controller
-                    )
-                    .frame(width: 400)
-                    .background(Color(NSColor.windowBackgroundColor))
-                }
-            }
-
-            Divider()
-
-            // Context usage statistics with PS4 toggle button
-            HStack(spacing: 0) {
-                ContextStatsView(contextMonitor: contextMonitor)
-
-                Divider()
-                    .frame(height: 40)
-
-                // PS4 Controller toggle button
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showPS4Controller.toggle()
-                    }
-                }) {
-                    VStack(spacing: 2) {
-                        Image(systemName: ps4Controller.monitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
-                            .font(.system(size: 22))
-                            .foregroundColor(ps4Controller.monitor.isConnected ? .green : .gray)
-                            .opacity(ps4Controller.monitor.isConnected ? 1.0 : 0.4)
-
-                        // Battery indicator - always show, but disabled when not connected
-                        PS4BatteryIndicator(
-                            level: ps4Controller.monitor.batteryLevel ?? 0,
-                            state: ps4Controller.monitor.batteryState,
-                            isConnected: ps4Controller.monitor.isConnected,
-                            batteryIsUnavailable: ps4Controller.monitor.batteryIsUnavailable
+                    // Model download indicator (center)
+                    if speechToText.speechRecognition.isDownloadingModel {
+                        ModelDownloadIndicator(
+                            progress: speechToText.speechRecognition.downloadProgress
                         )
                     }
-                }
-                .buttonStyle(.plain)
-                .frame(width: 60)
-                .animation(.easeInOut(duration: 0.3), value: ps4Controller.monitor.isConnected)
-                .help(batteryTooltip)
-                .onTapGesture(count: 2) {
-                    // Double-tap to force battery check (for debugging)
-                    print("ContentView: Manual battery check requested")
-                    if let level = ps4Controller.monitor.batteryLevel {
-                        print("ContentView: Current battery level: \(level) (\(Int(level * 100))%)")
-                        print("ContentView: Current battery state: \(ps4Controller.monitor.batteryState)")
-                    } else {
-                        print("ContentView: Battery level is nil")
+
+                    // Model warmup indicator (center)
+                    if speechToText.speechRecognition.isWarmingUp {
+                        ModelWarmupIndicator()
+                    }
+
+                    // Error banner (top)
+                    if let error = speechToText.currentError {
+                        ErrorBanner(
+                            error: error,
+                            onDismiss: {
+                                speechToText.clearError()
+                            },
+                            onRetry: error.canRetry ? {
+                                speechToText.retryAfterError()
+                            } : nil
+                        )
+                        .zIndex(100) // Ensure it appears above other content
+                    }
+
+                    // Speech-to-text status indicator (bottom-right) - Fallout style
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            if speechToText.isRecording || speechToText.isTranscribing {
+                                FalloutRecordingOverlay(
+                                    isRecording: speechToText.isRecording,
+                                    isTranscribing: speechToText.isTranscribing
+                                )
+                                .padding(16)
+                            }
+                        }
+                    }
+
+                    // Radial menu overlay (full screen)
+                    if ps4Controller.radialMenuController.isVisible {
+                        RadialMenuView(controller: ps4Controller.radialMenuController)
+                            .zIndex(50) // Below error banner, above terminal
+                    }
+
+                    // Profile switcher overlay (full screen)
+                    if ps4Controller.profileSwitcherController.isVisible {
+                        ProfileSwitcherView(controller: ps4Controller.profileSwitcherController)
+                            .zIndex(51) // Above radial menu
                     }
                 }
-                .contextMenu {
-                    Button("Toggle Controller Panel") {
-                        withAnimation {
+
+                    // PS4 Controller panel (collapsible)
+                    if showPS4Controller {
+                        Rectangle()
+                            .fill(Color.Fallout.border)
+                            .frame(width: 1)
+
+                        PS4ControllerView(
+                            monitor: ps4Controller.monitor,
+                            mapping: ps4Controller.mapping,
+                            controller: ps4Controller
+                        )
+                        .frame(width: 400)
+                        .background(Color.Fallout.backgroundPanel)
+                    }
+                }
+
+                Rectangle()
+                    .fill(Color.Fallout.border)
+                    .frame(height: 1)
+
+                // Context usage statistics with PS4 toggle button
+                HStack(spacing: 0) {
+                    ContextStatsView(contextMonitor: contextMonitor)
+
+                    Rectangle()
+                        .fill(Color.Fallout.borderDim)
+                        .frame(width: 1, height: 50)
+
+                    // PS4 Controller toggle button - Fallout styled
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
                             showPS4Controller.toggle()
                         }
+                    }) {
+                        VStack(spacing: 2) {
+                            Image(systemName: ps4Controller.monitor.isConnected ? "gamecontroller.fill" : "gamecontroller")
+                                .font(.system(size: 22))
+                                .foregroundColor(ps4Controller.monitor.isConnected ? Color.Fallout.primary : Color.Fallout.tertiary)
+                                .opacity(ps4Controller.monitor.isConnected ? 1.0 : 0.4)
+                                .falloutGlow(radius: ps4Controller.monitor.isConnected ? 3 : 0)
+
+                            // Battery indicator - always show, but disabled when not connected
+                            PS4BatteryIndicator(
+                                level: ps4Controller.monitor.batteryLevel ?? 0,
+                                state: ps4Controller.monitor.batteryState,
+                                isConnected: ps4Controller.monitor.isConnected,
+                                batteryIsUnavailable: ps4Controller.monitor.batteryIsUnavailable
+                            )
+                        }
                     }
-                    Divider()
-                    Toggle("Show Status Bar", isOn: $showPS4StatusBar)
-                    Toggle("Compact Mode", isOn: $useCompactStatusBar)
-                        .disabled(!showPS4StatusBar)
-                    Divider()
-                    Button("Check Battery Status") {
-                        ps4Controller.monitor.checkBatteryStatus()
+                    .buttonStyle(.plain)
+                    .frame(width: 60)
+                    .animation(.easeInOut(duration: 0.3), value: ps4Controller.monitor.isConnected)
+                    .help(batteryTooltip)
+                    .onTapGesture(count: 2) {
+                        // Double-tap to force battery check (for debugging)
+                        print("ContentView: Manual battery check requested")
+                        if let level = ps4Controller.monitor.batteryLevel {
+                            print("ContentView: Current battery level: \(level) (\(Int(level * 100))%)")
+                            print("ContentView: Current battery state: \(ps4Controller.monitor.batteryState)")
+                        } else {
+                            print("ContentView: Battery level is nil")
+                        }
                     }
-                    .disabled(!ps4Controller.monitor.isConnected)
+                    .contextMenu {
+                        Button("Toggle Controller Panel") {
+                            withAnimation {
+                                showPS4Controller.toggle()
+                            }
+                        }
+                        Divider()
+                        Toggle("Show Status Bar", isOn: $showPS4StatusBar)
+                        Toggle("Compact Mode", isOn: $useCompactStatusBar)
+                            .disabled(!showPS4StatusBar)
+                        Divider()
+                        Button("Check Battery Status") {
+                            ps4Controller.monitor.checkBatteryStatus()
+                        }
+                        .disabled(!ps4Controller.monitor.isConnected)
+                    }
                 }
+                .frame(height: 50)
+                .background(Color.Fallout.backgroundAlt)
             }
-            .frame(height: 60)
-            .background(Color(NSColor.controlBackgroundColor))
+
+            // CRT effects overlay
+            CRTEffectsOverlay()
         }
+        .preferredColorScheme(.dark)
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
         .sheet(isPresented: $showProjectLauncher) {
             ProjectLauncherView(
