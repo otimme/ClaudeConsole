@@ -41,6 +41,8 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     private var _outputBuffer = ""
     private var _isPWDCapture = false
     private var _pwdBuffer = ""
+    private var _waitingForClaudeBanner = false
+    private var _claudeBannerBuffer = ""
 
     // Thread-safe accessors
     private var outputBuffer: String {
@@ -492,7 +494,7 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         bufferLock.unlock()
 
         // Extract PWD from the prompt itself (e.g., "Olaf@olafs-mbp-m1 /path/to/dir % claude")
-        var workingDir = "/"  // Default fallback
+        var workingDir: String? = nil
 
         // Try to extract path from prompt pattern
         if let match = searchText.range(of: #"@[^\s]+ ([^\s]+) [%$]"#, options: .regularExpression) {
@@ -504,32 +506,34 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         }
 
         // Expand ~ to home directory
-        if workingDir.hasPrefix("~") {
-            workingDir = workingDir.replacingOccurrences(of: "~", with: NSHomeDirectory())
+        if let dir = workingDir, dir.hasPrefix("~") {
+            workingDir = dir.replacingOccurrences(of: "~", with: NSHomeDirectory())
         }
 
-        // If path doesn't start with /, it might be relative - default to root
-        if !workingDir.hasPrefix("/") {
-            workingDir = "/"
+        // If we got a valid full path, use it immediately
+        if let dir = workingDir, dir.hasPrefix("/") {
+            // Post notification on main thread
+            DispatchQueue.main.async { [weak self] in
+                self?.onClaudeStarted?(dir)
+                NotificationCenter.default.post(
+                    name: .claudeCodeStarted,
+                    object: nil,
+                    userInfo: ["workingDirectory": dir]
+                )
+            }
+
+            // Clear buffer atomically
+            bufferLock.lock()
+            _outputBuffer = ""
+            bufferLock.unlock()
+        } else {
+            // Prompt only shows folder name (not full path), use pwd to get the actual path
+            bufferLock.lock()
+            _outputBuffer = ""
+            bufferLock.unlock()
+
+            getPWD()
         }
-
-        // Post notification on main thread
-        DispatchQueue.main.async { [weak self] in
-            // Call the callback for window-scoped observers
-            self?.onClaudeStarted?(workingDir)
-
-            // Also post notification for backwards compatibility
-            NotificationCenter.default.post(
-                name: .claudeCodeStarted,
-                object: nil,
-                userInfo: ["workingDirectory": workingDir]
-            )
-        }
-
-        // Clear buffer atomically
-        bufferLock.lock()
-        _outputBuffer = ""
-        bufferLock.unlock()
     }
 
     private func getPWD() {

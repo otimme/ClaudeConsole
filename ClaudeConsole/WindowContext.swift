@@ -27,6 +27,17 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
     /// Whether this window currently has focus (is key window)
     @Published var isFocused: Bool = false
 
+    // MARK: - Project State
+
+    /// The current working directory (project folder) for this window
+    @Published var workingDirectory: String?
+
+    /// The project folder name extracted from the working directory
+    var projectFolderName: String? {
+        guard let path = workingDirectory else { return nil }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
     // MARK: - Terminal Controller
 
     /// Reference to this window's terminal controller
@@ -175,6 +186,7 @@ final class WindowContext: ObservableObject, WindowCoordinatorProtocol {
 
     /// Forward Claude started event to observers (called by TerminalView)
     func receiveClaudeStarted(workingDirectory: String) {
+        self.workingDirectory = workingDirectory
         onClaudeStarted?(workingDirectory)
     }
 }

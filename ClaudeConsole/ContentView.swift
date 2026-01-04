@@ -106,7 +106,10 @@ struct ContentView: View {
 
             VStack(spacing: 0) {
                 // Fallout-style status bar at the very top
-                FalloutStatusBar(title: "CLAUDE CONSOLE", showIndicators: true)
+                FalloutStatusBar(
+                    title: statusBarTitle,
+                    showIndicators: true
+                )
 
                 // PS4 Controller status bar (only when connected)
                 if showPS4StatusBar && sharedMonitor.isConnected {
@@ -305,6 +308,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
+        .navigationTitle(windowTitle)
         .sheet(isPresented: $showProjectLauncher) {
             ProjectLauncherView(
                 ps4Monitor: sharedMonitor,
@@ -421,6 +425,32 @@ struct ContentView: View {
 
     var batteryTooltip: String {
         return sharedMonitor.connectionStatusDescription
+    }
+
+    var projectName: String? {
+        // First try selected project from launcher
+        if let project = selectedProject {
+            return project.path.lastPathComponent
+        }
+        // Fall back to detected working directory
+        if let name = windowContext.projectFolderName, name != "/" {
+            return name
+        }
+        return nil
+    }
+
+    var windowTitle: String {
+        if let name = projectName {
+            return "ClaudeConsole - \(name)"
+        }
+        return "ClaudeConsole"
+    }
+
+    var statusBarTitle: String {
+        if let name = projectName {
+            return "CLAUDE CONSOLE - \(name.uppercased())"
+        }
+        return "CLAUDE CONSOLE"
     }
 
     // MARK: - Project Launcher
