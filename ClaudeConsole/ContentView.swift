@@ -204,6 +204,7 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .allowsHitTesting(false)
 
                     // Radial menu overlay (full screen)
                     if ps4Coordinator.radialMenuController.isVisible {
