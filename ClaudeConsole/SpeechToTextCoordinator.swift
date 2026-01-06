@@ -35,6 +35,9 @@ final class SpeechToTextCoordinator: ObservableObject {
     @Published var isReady = false
     @Published var currentError: SpeechToTextError?
 
+    /// Per-window speech recognition language (defaults to English, not persisted)
+    @Published var speechLanguage: SpeechLanguage = .english
+
     // MARK: - Shared Resources
 
     private var shared: SharedResourceManager { SharedResourceManager.shared }
@@ -152,8 +155,9 @@ final class SpeechToTextCoordinator: ObservableObject {
         }
 
         // Transcribe and insert into this window's terminal
+        let language = self.speechLanguage
         Task {
-            if let transcription = await shared.transcribe(audioURL: audioURL) {
+            if let transcription = await shared.transcribe(audioURL: audioURL, language: language) {
                 await insertTextIntoTerminal(transcription)
             }
             shared.cleanupRecording(at: audioURL)

@@ -223,9 +223,9 @@ final class SharedResourceManager: ObservableObject {
         return audioRecorder.stopRecording()
     }
 
-    /// Transcribe audio file using WhisperKit
-    func transcribe(audioURL: URL) async -> String? {
-        return await speechRecognition.transcribe(audioURL: audioURL)
+    /// Transcribe audio file using WhisperKit with specified language
+    func transcribe(audioURL: URL, language: SpeechLanguage = .english) async -> String? {
+        return await speechRecognition.transcribe(audioURL: audioURL, language: language)
     }
 
     /// Clean up a recording file

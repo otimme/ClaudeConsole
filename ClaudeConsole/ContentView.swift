@@ -247,8 +247,8 @@ struct ContentView: View {
                         .fill(Color.Fallout.borderDim)
                         .frame(width: 1, height: 50)
 
-                    // Speech language toggle buttons
-                    SpeechLanguageToggle()
+                    // Speech language toggle buttons (per-window)
+                    SpeechLanguageToggle(speechCoordinator: speechCoordinator)
 
                     Rectangle()
                         .fill(Color.Fallout.borderDim)
@@ -675,18 +675,18 @@ struct SpeechStatusIndicator: View {
 
 // MARK: - Speech Language Toggle
 
-/// Fallout-styled language toggle buttons for speech recognition
+/// Fallout-styled language toggle buttons for speech recognition (per-window)
 struct SpeechLanguageToggle: View {
-    @ObservedObject private var languageManager = SpeechLanguageManager.shared
+    @ObservedObject var speechCoordinator: SpeechToTextCoordinator
 
     var body: some View {
         HStack(spacing: 0) {
             // English button
             LanguageButton(
                 language: .english,
-                isSelected: languageManager.currentLanguage == .english
+                isSelected: speechCoordinator.speechLanguage == .english
             ) {
-                languageManager.setLanguage(.english)
+                speechCoordinator.speechLanguage = .english
             }
 
             // Divider between buttons
@@ -697,13 +697,13 @@ struct SpeechLanguageToggle: View {
             // Dutch button
             LanguageButton(
                 language: .dutch,
-                isSelected: languageManager.currentLanguage == .dutch
+                isSelected: speechCoordinator.speechLanguage == .dutch
             ) {
-                languageManager.setLanguage(.dutch)
+                speechCoordinator.speechLanguage = .dutch
             }
         }
         .frame(width: 100)
-        .help("Speech recognition language")
+        .help("Speech recognition language (per window)")
     }
 }
 

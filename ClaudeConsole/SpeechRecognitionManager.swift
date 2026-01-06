@@ -123,7 +123,7 @@ class SpeechRecognitionManager: ObservableObject {
         }
     }
 
-    func transcribe(audioURL: URL, language: SpeechLanguage? = nil) async -> String? {
+    func transcribe(audioURL: URL, language: SpeechLanguage = .english) async -> String? {
         guard let whisper = whisperKit else {
             await MainActor.run {
                 self.isTranscribing = false
@@ -149,12 +149,9 @@ class SpeechRecognitionManager: ObservableObject {
         }
 
         do {
-            // Use provided language or fall back to current setting
-            let selectedLanguage = language ?? SpeechLanguageManager.shared.currentLanguage
-
             let options = DecodingOptions(
                 verbose: false,
-                language: selectedLanguage.rawValue,
+                language: language.rawValue,
                 temperature: 0.0
             )
 
