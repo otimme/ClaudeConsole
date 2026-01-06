@@ -239,9 +239,16 @@ struct ContentView: View {
                     .fill(Color.Fallout.border)
                     .frame(height: 1)
 
-                // Context usage statistics with PS4 toggle button
+                // Context usage statistics with language toggle and PS4 toggle button
                 HStack(spacing: 0) {
                     ContextStatsView(contextMonitor: contextMonitor)
+
+                    Rectangle()
+                        .fill(Color.Fallout.borderDim)
+                        .frame(width: 1, height: 50)
+
+                    // Speech language toggle buttons
+                    SpeechLanguageToggle()
 
                     Rectangle()
                         .fill(Color.Fallout.borderDim)
@@ -663,6 +670,65 @@ struct SpeechStatusIndicator: View {
         .padding(.vertical, 6)
         .background(Color.black.opacity(0.75))
         .cornerRadius(20)
+    }
+}
+
+// MARK: - Speech Language Toggle
+
+/// Fallout-styled language toggle buttons for speech recognition
+struct SpeechLanguageToggle: View {
+    @ObservedObject private var languageManager = SpeechLanguageManager.shared
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // English button
+            LanguageButton(
+                language: .english,
+                isSelected: languageManager.currentLanguage == .english
+            ) {
+                languageManager.setLanguage(.english)
+            }
+
+            // Divider between buttons
+            Rectangle()
+                .fill(Color.Fallout.borderDim)
+                .frame(width: 1, height: 30)
+
+            // Dutch button
+            LanguageButton(
+                language: .dutch,
+                isSelected: languageManager.currentLanguage == .dutch
+            ) {
+                languageManager.setLanguage(.dutch)
+            }
+        }
+        .frame(width: 100)
+        .help("Speech recognition language")
+    }
+}
+
+/// Individual language button
+struct LanguageButton: View {
+    let language: SpeechLanguage
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Text(language.flag)
+                    .font(.system(size: 16))
+
+                Text(language.shortName)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .regular, design: .monospaced))
+                    .foregroundColor(isSelected ? Color.Fallout.primary : Color.Fallout.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(isSelected ? Color.Fallout.primary.opacity(0.15) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .falloutGlow(radius: isSelected ? 2 : 0)
     }
 }
 
