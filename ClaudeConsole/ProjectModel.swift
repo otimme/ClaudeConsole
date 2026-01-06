@@ -65,7 +65,7 @@ struct ProjectLauncherSettings: Codable {
         "~/Code",
         "~/Development"
     ]
-    var maxDepth: Int = 3
+    var maxDepth: Int = 5
     var enableAutoLaunch: Bool = true
     var excludePatterns: [String] = [
         "node_modules",
