@@ -340,8 +340,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
-				kind = exactVersion;
-				version = 1.5.0;
+				branch = main;
+				kind = branch;
 			};
 		};
 		EDF881C62EB5D23800643C5F /* XCRemoteSwiftPackageReference "whisperkit" */ = {

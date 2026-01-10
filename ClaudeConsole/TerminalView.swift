@@ -94,19 +94,8 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         }
     }
 
-    // Event monitor for fixing selection coordinates
+    // Event monitor (kept for removeEventMonitor safety)
     private var eventMonitor: Any?
-    private var cachedCellHeight: CGFloat?
-
-    private func getCellHeight() -> CGFloat {
-        if let cached = cachedCellHeight {
-            return cached
-        }
-        let lineHeight = font.ascender - font.descender + font.leading
-        let cellHeight = ceil(lineHeight)
-        cachedCellHeight = cellHeight
-        return cellHeight
-    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -287,66 +276,8 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
     }
 
     private func setupEventMonitor() {
-        removeEventMonitor()
-
-        // Monitor left mouse dragged and up events to fix selection coordinates
-        // This works around a SwiftTerm bug where mouseDragged doesn't account for yDisp
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
-            guard let self = self else { return event }
-
-            // Only process events within our view
-            guard let window = self.window,
-                  let contentView = window.contentView else {
-                return event
-            }
-
-            let locationInWindow = event.locationInWindow
-            let locationInContent = contentView.convert(locationInWindow, from: nil)
-            let locationInSelf = self.convert(locationInContent, from: contentView)
-
-            // Check if event is within our bounds
-            guard self.bounds.contains(locationInSelf) else {
-                return event
-            }
-
-            // Get the scroll offset (yDisp)
-            guard let terminal = self.terminal else {
-                return event
-            }
-
-            let yDisp = terminal.buffer.yDisp
-
-            // Always apply yDisp adjustment (no arbitrary limits)
-            // SwiftTerm's mouseDown adds yDisp but mouseDragged doesn't
-            // We compensate by shifting the Y coordinate
-            if yDisp != 0 {
-                let cellHeight = self.getCellHeight()
-
-                // In NSView coordinates (origin at bottom-left), we need to shift UP
-                // by the number of scrolled lines to make SwiftTerm calculate the correct buffer row
-                // Add one extra cell height to account for off-by-one error
-                let scrollOffset = CGFloat(yDisp) * cellHeight + cellHeight
-                let adjustedY = locationInWindow.y + scrollOffset
-                let adjustedLocation = CGPoint(x: locationInWindow.x, y: adjustedY)
-
-                // Create adjusted event
-                if let adjustedEvent = NSEvent.mouseEvent(
-                    with: event.type,
-                    location: adjustedLocation,
-                    modifierFlags: event.modifierFlags,
-                    timestamp: event.timestamp,
-                    windowNumber: event.windowNumber,
-                    context: nil,
-                    eventNumber: event.eventNumber,
-                    clickCount: event.clickCount,
-                    pressure: event.pressure
-                ) {
-                    return adjustedEvent
-                }
-            }
-
-            return event
-        }
+        // Note: Previous workaround for SwiftTerm mouse selection bug removed.
+        // The bug (issue #408) is now fixed in SwiftTerm main branch.
     }
 
     private func removeEventMonitor() {
@@ -356,20 +287,21 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
         }
     }
 
-    // MARK: - Fix for text selection after scrolling
-
     override func layout() {
         super.layout()
-        cachedCellHeight = nil  // Clear cache on layout changes
-        // Force the terminal to update its internal coordinate system after layout changes
-        // This ensures selection coordinates are properly updated when scrolling
+        // Force the terminal to update its display after layout changes
         self.setNeedsDisplay(self.bounds)
     }
 
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        // First, feed the data to the terminal (normal operation)
-        super.dataReceived(slice: slice)
+        // Check if we're capturing PWD output - if so, don't display it
+        let isCapturing = isPWDCapture
+
+        if !isCapturing {
+            // Only feed data to terminal when not capturing PWD
+            super.dataReceived(slice: slice)
+        }
 
         // Then monitor the output for claude command
         guard let text = String(bytes: slice, encoding: .utf8) else { return }
