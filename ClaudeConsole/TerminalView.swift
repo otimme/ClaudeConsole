@@ -30,7 +30,6 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
     // Constants for buffer limits
     private static let maxOutputBufferSize = 2000  // Max chars for output buffer
-    private static let maxPWDBufferSize = 5000     // Max chars for PWD buffer
 
     // MARK: - Thread-Safe Buffer Access
     // All buffer properties are protected by bufferLock to prevent race conditions
@@ -39,10 +38,6 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
     // Backing storage (only access while holding bufferLock)
     private var _outputBuffer = ""
-    private var _isPWDCapture = false
-    private var _pwdBuffer = ""
-    private var _waitingForClaudeBanner = false
-    private var _claudeBannerBuffer = ""
 
     // Thread-safe accessors
     private var outputBuffer: String {
@@ -58,38 +53,6 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
             // Automatically trim buffer if it exceeds limit
             if _outputBuffer.count > Self.maxOutputBufferSize {
                 _outputBuffer = String(_outputBuffer.suffix(Self.maxOutputBufferSize))
-            }
-        }
-    }
-
-    private var isPWDCapture: Bool {
-        get {
-            bufferLock.lock()
-            defer { bufferLock.unlock() }
-            return _isPWDCapture
-        }
-        set {
-            bufferLock.lock()
-            defer { bufferLock.unlock() }
-            _isPWDCapture = newValue
-        }
-    }
-
-    private var pwdBuffer: String {
-        get {
-            bufferLock.lock()
-            defer { bufferLock.unlock() }
-            return _pwdBuffer
-        }
-        set {
-            bufferLock.lock()
-            defer { bufferLock.unlock() }
-            _pwdBuffer = newValue
-            // Automatically trim buffer if it exceeds limit
-            if _pwdBuffer.count > Self.maxPWDBufferSize {
-                // If PWD capture buffer gets too large, abort capture
-                _isPWDCapture = false
-                _pwdBuffer = ""
             }
         }
     }
@@ -295,13 +258,8 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        // Check if we're capturing PWD output - if so, don't display it
-        let isCapturing = isPWDCapture
-
-        if !isCapturing {
-            // Only feed data to terminal when not capturing PWD
-            super.dataReceived(slice: slice)
-        }
+        // Feed data to terminal for display
+        super.dataReceived(slice: slice)
 
         // Then monitor the output for claude command
         guard let text = String(bytes: slice, encoding: .utf8) else { return }
@@ -320,84 +278,13 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
             )
         }
 
-        // Process buffer atomically
-        processReceivedData(text)
-    }
-
-    /// Process received data with proper synchronization
-    private func processReceivedData(_ text: String) {
-        // Check PWD capture state atomically
+        // Process buffer for claude command detection
         bufferLock.lock()
-        let isCapturing = _isPWDCapture
-        if isCapturing {
-            _pwdBuffer += text
-            let currentPWDBuffer = _pwdBuffer
-            bufferLock.unlock()
-
-            processPWDCapture(buffer: currentPWDBuffer)
-            return
-        }
-
-        // Regular output processing
         _outputBuffer += text
         let currentBuffer = _outputBuffer
         bufferLock.unlock()
 
         processOutputBuffer(buffer: currentBuffer, newText: text)
-    }
-
-    /// Process PWD capture buffer
-    private func processPWDCapture(buffer: String) {
-        guard buffer.contains("___PWD_START___") && buffer.contains("___PWD_END___") else {
-            return
-        }
-
-        // Extract PWD between markers
-        if let startRange = buffer.range(of: "___PWD_START___"),
-           let endRange = buffer.range(of: "___PWD_END___") {
-            let pwdSection = buffer[startRange.upperBound..<endRange.lowerBound]
-
-            // Remove ANSI codes from the section
-            var cleanSection = String(pwdSection)
-            cleanSection = cleanSection.replacingOccurrences(
-                of: "\\u{001B}\\[[0-9;?]*[a-zA-Z]",
-                with: "",
-                options: .regularExpression
-            )
-
-            let lines = cleanSection.components(separatedBy: CharacterSet.newlines)
-
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty && trimmed.hasPrefix("/") {
-                    // Post notification on main thread
-                    DispatchQueue.main.async { [weak self] in
-                        // Call the callback for window-scoped observers
-                        self?.onClaudeStarted?(trimmed)
-
-                        // Also post notification for backwards compatibility
-                        NotificationCenter.default.post(
-                            name: .claudeCodeStarted,
-                            object: nil,
-                            userInfo: ["workingDirectory": trimmed]
-                        )
-                    }
-
-                    // Reset capture state atomically
-                    bufferLock.lock()
-                    _isPWDCapture = false
-                    _pwdBuffer = ""
-                    bufferLock.unlock()
-                    return
-                }
-            }
-        }
-
-        // If we didn't find a path, reset and give up
-        bufferLock.lock()
-        _isPWDCapture = false
-        _pwdBuffer = ""
-        bufferLock.unlock()
     }
 
     /// Process regular output buffer for claude command detection
@@ -417,18 +304,11 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
 
         guard searchText.contains("claude") else { return }
 
-        // Check if already capturing (atomically)
-        bufferLock.lock()
-        guard !_isPWDCapture else {
-            bufferLock.unlock()
-            return
-        }
-        bufferLock.unlock()
-
         // Extract PWD from the prompt itself (e.g., "Olaf@olafs-mbp-m1 /path/to/dir % claude")
         var workingDir: String? = nil
 
-        // Try to extract path from prompt pattern
+        // Try multiple prompt patterns to extract path
+        // Pattern 1: "user@host /path/to/dir % claude" or "user@host /path/to/dir $ claude"
         if let match = searchText.range(of: #"@[^\s]+ ([^\s]+) [%$]"#, options: .regularExpression) {
             let matchedText = String(searchText[match])
             let components = matchedText.components(separatedBy: " ")
@@ -437,47 +317,66 @@ class MonitoredLocalProcessTerminalView: LocalProcessTerminalView {
             }
         }
 
+        // Pattern 2: Just "dirname % claude" without user@host
+        if workingDir == nil {
+            if let match = searchText.range(of: #"([^\s]+)\s*[%$]\s*claude"#, options: .regularExpression) {
+                let matchedText = String(searchText[match])
+                let components = matchedText.components(separatedBy: CharacterSet(charactersIn: " %$"))
+                    .filter { !$0.isEmpty && $0 != "claude" }
+                if let firstComponent = components.first {
+                    workingDir = firstComponent
+                }
+            }
+        }
+
         // Expand ~ to home directory
         if let dir = workingDir, dir.hasPrefix("~") {
             workingDir = dir.replacingOccurrences(of: "~", with: NSHomeDirectory())
         }
 
-        // If we got a valid full path, use it immediately
-        if let dir = workingDir, dir.hasPrefix("/") {
-            // Post notification on main thread
-            DispatchQueue.main.async { [weak self] in
-                self?.onClaudeStarted?(dir)
-                NotificationCenter.default.post(
-                    name: .claudeCodeStarted,
-                    object: nil,
-                    userInfo: ["workingDirectory": dir]
-                )
+        // If we only have a folder name (no path), try to resolve it
+        if let dir = workingDir, !dir.hasPrefix("/") {
+            // Try common locations: home directory and its subdirectories
+            let homeDir = NSHomeDirectory()
+            let possiblePaths = [
+                "\(homeDir)/\(dir)",
+                "\(homeDir)/Documents/\(dir)",
+                "\(homeDir)/Projects/\(dir)",
+                "\(homeDir)/Developer/\(dir)",
+                "\(homeDir)/Code/\(dir)",
+                "\(homeDir)/Documents/Projects/\(dir)",
+                homeDir  // Fallback to home directory
+            ]
+
+            for path in possiblePaths {
+                if FileManager.default.fileExists(atPath: path) {
+                    workingDir = path
+                    break
+                }
             }
 
-            // Clear buffer atomically
-            bufferLock.lock()
-            _outputBuffer = ""
-            bufferLock.unlock()
-        } else {
-            // Prompt only shows folder name (not full path), use pwd to get the actual path
-            bufferLock.lock()
-            _outputBuffer = ""
-            bufferLock.unlock()
-
-            getPWD()
+            // If still not a full path, just use home directory as fallback
+            if let dir = workingDir, !dir.hasPrefix("/") {
+                workingDir = homeDir
+            }
         }
-    }
 
-    private func getPWD() {
-        // Set capture state atomically
+        // Clear buffer atomically
         bufferLock.lock()
-        _isPWDCapture = true
-        _pwdBuffer = ""
+        _outputBuffer = ""
         bufferLock.unlock()
 
-        let command = "echo ___PWD_START___; pwd; echo ___PWD_END___\r"
-        if let data = command.data(using: .utf8) {
-            self.send(data: ArraySlice(data))
+        // Use resolved path or fallback to home directory
+        let finalDir = workingDir ?? NSHomeDirectory()
+
+        // Post notification on main thread
+        DispatchQueue.main.async { [weak self] in
+            self?.onClaudeStarted?(finalDir)
+            NotificationCenter.default.post(
+                name: .claudeCodeStarted,
+                object: nil,
+                userInfo: ["workingDirectory": finalDir]
+            )
         }
     }
 }
