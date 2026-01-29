@@ -14,7 +14,10 @@ struct ContextStats: Codable {
     var maxTokens: Int = 200000
     var systemPrompt: Int = 0
     var systemTools: Int = 0
+    var mcpTools: Int = 0
     var customAgents: Int = 0
+    var memoryFiles: Int = 0
+    var skills: Int = 0
     var messages: Int = 0
     var freeSpace: Int = 0
     var autocompactBuffer: Int = 0
@@ -35,12 +38,7 @@ class ContextMonitor: ObservableObject {
 
     /// Terminal controller reference - can be set directly for multi-instance support
     /// or via notification for backwards compatibility
-    weak var terminalController: LocalProcessTerminalView? {
-        didSet {
-            // When terminal is set directly, we don't need notification observer
-            // but we keep it for backwards compatibility
-        }
-    }
+    weak var terminalController: LocalProcessTerminalView?
 
     // MARK: - Thread-Safe Buffer Access
     // Buffer properties are protected by bufferLock to prevent race conditions
@@ -140,7 +138,6 @@ class ContextMonitor: ObservableObject {
     private func handleTerminalOutput(_ text: String) {
         // Detect if user manually typed /context command
         if !isCapturingContext && text.contains("/context") {
-            // Start capturing - user manually invoked /context
             bufferLock.lock()
             _isCapturingContext = true
             _outputBuffer = ""
@@ -151,13 +148,28 @@ class ContextMonitor: ObservableObject {
 
         outputBuffer += text
 
-        // Reset the timer - wait for 1 second of no output before parsing
+        // Reset the timer - wait for 2 seconds of no output before parsing
         captureTimer?.invalidate()
-        captureTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+        captureTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
             guard let self = self else { return }
-            self.parseContextOutput()
-            self.isCapturingContext = false
-            self.captureTimer = nil
+
+            // Check if buffer contains actual context data (Free space line)
+            let hasContextData = self.outputBuffer.contains("Free space") ||
+                                 self.outputBuffer.contains("tokens (")
+
+            if hasContextData {
+                self.parseContextOutput()
+                self.isCapturingContext = false
+                self.captureTimer = nil
+            } else {
+                // Reschedule timer to wait for more output
+                self.captureTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                    guard let self = self else { return }
+                    self.parseContextOutput()
+                    self.isCapturingContext = false
+                    self.captureTimer = nil
+                }
+            }
         }
     }
 
@@ -178,62 +190,68 @@ class ContextMonitor: ObservableObject {
         for line in lines {
             let cleanLine = line.trimmingCharacters(in: .whitespaces)
 
-            // Parse total tokens: "69k/200k tokens (34%)"
-            if let match = cleanLine.range(of: #"(\d+)k/(\d+)k tokens"#, options: .regularExpression) {
-                let numbers = cleanLine[match].split(separator: "/")
-                if numbers.count == 2 {
-                    if let used = Int(numbers[0].replacingOccurrences(of: "k", with: "")) {
-                        newStats.totalTokens = used * 1000
+            // NEW FORMAT: Parse "Free space: 135k (67.3%)" - calculate max from this
+            if cleanLine.contains("Free space:") {
+                // Match pattern like "Free space: 135k (67.3%)"
+                if let freeMatch = cleanLine.range(of: #"Free space:\s*(\d+\.?\d*)k\s*\((\d+\.?\d*)%\)"#, options: .regularExpression) {
+                    let matchedStr = String(cleanLine[freeMatch])
+                    // Extract the number before 'k'
+                    if let numMatch = matchedStr.range(of: #"(\d+\.?\d*)k"#, options: .regularExpression) {
+                        let numStr = matchedStr[numMatch].replacingOccurrences(of: "k", with: "")
+                        if let freeK = Double(numStr) {
+                            newStats.freeSpace = Int(freeK * 1000)
+                        }
                     }
-                    if let max = Int(numbers[1].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)) {
-                        newStats.maxTokens = max * 1000
+                    // Extract the percentage
+                    if let pctMatch = matchedStr.range(of: #"\((\d+\.?\d*)%\)"#, options: .regularExpression) {
+                        let pctStr = matchedStr[pctMatch]
+                            .replacingOccurrences(of: "(", with: "")
+                            .replacingOccurrences(of: "%)", with: "")
+                        if let pct = Double(pctStr), pct > 0 {
+                            // Calculate max tokens: freeSpace / (percentage/100)
+                            newStats.maxTokens = Int(Double(newStats.freeSpace) / (pct / 100.0))
+                            // Calculate used tokens
+                            newStats.totalTokens = newStats.maxTokens - newStats.freeSpace
+                        }
                     }
                 }
             }
 
-            // Parse individual components
-            if cleanLine.contains("System prompt:") {
-                if let match = cleanLine.range(of: #"(\d+\.?\d*)k tokens"#, options: .regularExpression) {
-                    let numStr = cleanLine[match].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)
-                    if let num = Double(numStr) {
-                        newStats.systemPrompt = Int(num * 1000)
+            // OLD FORMAT: Parse total tokens: "25k/200k tokens (13%)"
+            if newStats.totalTokens == 0 {
+                if let match = cleanLine.range(of: #"(\d+)k/(\d+)k tokens"#, options: .regularExpression) {
+                    let numbers = cleanLine[match].split(separator: "/")
+                    if numbers.count == 2 {
+                        if let used = Int(numbers[0].replacingOccurrences(of: "k", with: "")) {
+                            newStats.totalTokens = used * 1000
+                        }
+                        if let max = Int(numbers[1].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)) {
+                            newStats.maxTokens = max * 1000
+                        }
                     }
                 }
-            } else if cleanLine.contains("System tools:") {
-                if let match = cleanLine.range(of: #"(\d+\.?\d*)k tokens"#, options: .regularExpression) {
-                    let numStr = cleanLine[match].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)
-                    if let num = Double(numStr) {
-                        newStats.systemTools = Int(num * 1000)
-                    }
-                }
-            } else if cleanLine.contains("Custom agents:") {
-                if let match = cleanLine.range(of: #"(\d+\.?\d*)k tokens"#, options: .regularExpression) {
-                    let numStr = cleanLine[match].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)
-                    if let num = Double(numStr) {
-                        newStats.customAgents = Int(num * 1000)
-                    }
-                }
-            } else if cleanLine.contains("Messages:") {
-                if let match = cleanLine.range(of: #"(\d+\.?\d*)k tokens"#, options: .regularExpression) {
-                    let numStr = cleanLine[match].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)
-                    if let num = Double(numStr) {
-                        newStats.messages = Int(num * 1000)
-                    }
-                }
-            } else if cleanLine.contains("Free space:") {
-                if let match = cleanLine.range(of: #"(\d+)k"#, options: .regularExpression) {
-                    let numStr = cleanLine[match].replacingOccurrences(of: "k", with: "").trimmingCharacters(in: .whitespaces)
-                    if let num = Int(numStr) {
-                        newStats.freeSpace = num * 1000
-                    }
-                }
-            } else if cleanLine.contains("Autocompact buffer:") {
-                if let match = cleanLine.range(of: #"(\d+\.?\d*)k tokens"#, options: .regularExpression) {
-                    let numStr = cleanLine[match].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)
-                    if let num = Double(numStr) {
-                        newStats.autocompactBuffer = Int(num * 1000)
-                    }
-                }
+            }
+
+            // Parse individual components using helper function
+            // NEW FORMAT: "⛁ Memory files: 6.3k tokens (3.1%)"
+            // OLD FORMAT: "Memory files: 6.3k tokens"
+            if cleanLine.contains("System prompt") {
+                newStats.systemPrompt = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("System tools") {
+                newStats.systemTools = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("MCP tools") {
+                newStats.mcpTools = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("Custom agents") {
+                newStats.customAgents = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("Memory files") && !cleanLine.contains("·") {
+                // Avoid matching header lines like "Memory files · /memory"
+                newStats.memoryFiles = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("Skills") && cleanLine.contains("tokens") {
+                newStats.skills = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("Messages") {
+                newStats.messages = parseTokenValue(from: cleanLine)
+            } else if cleanLine.contains("Autocompact buffer") {
+                newStats.autocompactBuffer = parseTokenValue(from: cleanLine)
             }
         }
 
@@ -246,6 +264,27 @@ class ContextMonitor: ObservableObject {
 
         // Clear buffer
         outputBuffer = ""
+    }
+
+    /// Parse token values that can be either "X.Xk tokens" or "X tokens" format
+    private func parseTokenValue(from line: String) -> Int {
+        // First try to match "Xk tokens" or "X.Xk tokens" format (e.g., "2.7k tokens", "17.5k tokens")
+        if let match = line.range(of: #"(\d+\.?\d*)k tokens"#, options: .regularExpression) {
+            let numStr = line[match].replacingOccurrences(of: "k tokens", with: "").trimmingCharacters(in: .whitespaces)
+            if let num = Double(numStr) {
+                return Int(num * 1000)
+            }
+        }
+
+        // Then try to match plain "X tokens" format (e.g., "844 tokens", "8 tokens")
+        if let match = line.range(of: #"(\d+) tokens"#, options: .regularExpression) {
+            let numStr = line[match].replacingOccurrences(of: " tokens", with: "").trimmingCharacters(in: .whitespaces)
+            if let num = Int(numStr) {
+                return num
+            }
+        }
+
+        return 0
     }
 
     deinit {
