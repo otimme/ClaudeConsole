@@ -485,7 +485,15 @@ extension PTYSession {
     }
 
     /// Find claude executable path
+    /// Prefers the native binary at ~/.local/bin/claude over nvm-installed versions
     static func findClaudePath() async -> String? {
+        // Prefer native binary at ~/.local/bin/claude (modern Bun-compiled binary)
+        let nativePath = "\(NSHomeDirectory())/.local/bin/claude"
+        if FileManager.default.fileExists(atPath: nativePath) {
+            logger.info("Found native claude at \(nativePath)")
+            return nativePath
+        }
+
         // Try using 'which' command
         if let path = await runCommand("/bin/zsh", arguments: ["-l", "-c", "which claude"]) {
             let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)

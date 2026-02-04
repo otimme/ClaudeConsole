@@ -53,7 +53,7 @@ class UsageMonitor: ObservableObject {
     // Polling state
     private var pollTimer: Timer?
     private var attemptCount = 0
-    private let maxAttempts = 3
+    private let maxAttempts = 5
 
     // Claude path (found during initialization)
     private var claudePath: String?
@@ -98,22 +98,30 @@ class UsageMonitor: ObservableObject {
             return
         }
 
-        // Find node in the same directory as claude
-        let claudeURL = URL(fileURLWithPath: claudePath)
-        let nodePath = claudeURL.deletingLastPathComponent().appendingPathComponent("node").path
+        // Resolve symlink to get the real executable path
+        let resolvedPath = (try? FileManager.default.destinationOfSymbolicLink(atPath: claudePath)) ?? claudePath
 
-        guard FileManager.default.fileExists(atPath: nodePath) else {
-            logger.error("Node not found at \(nodePath)")
-            return
-        }
-
-        logger.info("Using node at \(nodePath)")
+        // Determine if this is a native binary or node.js script
+        let isNativeBinary = resolvedPath.contains("/versions/") || !resolvedPath.contains("/node/")
 
         // Get PATH from login shell
         let pathEnv = await PTYSession.getLoginShellPath()
 
-        // Create PTY session
-        let session = PTYSession(maxBufferSize: 50000, debounceInterval: 0.3)
+        // Build environment: inherit full process environment for Keychain/OAuth access,
+        // then override TERM and PATH for proper terminal operation
+        var environment = ProcessInfo.processInfo.environment
+        environment["TERM"] = "xterm-256color"
+        environment["PATH"] = pathEnv
+        // Ensure critical identity vars are set (needed for Keychain credential access)
+        if environment["USER"] == nil {
+            environment["USER"] = NSUserName()
+        }
+        if environment["HOME"] == nil {
+            environment["HOME"] = NSHomeDirectory()
+        }
+
+        // Create PTY session (longer debounce to let the settings panel fully render)
+        let session = PTYSession(maxBufferSize: 50000, debounceInterval: 2.0)
 
         // Set up output handler - parse usage data when buffer settles
         session.onOutput = { [weak self] buffer in
@@ -126,18 +134,32 @@ class UsageMonitor: ObservableObject {
         }
 
         do {
-            try await session.start(
-                executablePath: nodePath,
-                arguments: ["node", claudePath],
-                environment: [
-                    "TERM": "xterm-256color",
-                    "HOME": NSHomeDirectory(),
-                    "PATH": pathEnv
-                ]
-            )
+            if isNativeBinary {
+                // Native Bun binary - spawn directly
+                try await session.start(
+                    executablePath: claudePath,
+                    arguments: ["claude"],
+                    environment: environment
+                )
+            } else {
+                // Legacy node.js script - use node wrapper
+                let claudeURL = URL(fileURLWithPath: claudePath)
+                let nodePath = claudeURL.deletingLastPathComponent().appendingPathComponent("node").path
+
+                guard FileManager.default.fileExists(atPath: nodePath) else {
+                    logger.error("Node not found at \(nodePath) for legacy claude script")
+                    await MainActor.run { self.fetchStatus = .failed }
+                    return
+                }
+
+                try await session.start(
+                    executablePath: nodePath,
+                    arguments: ["node", claudePath],
+                    environment: environment
+                )
+            }
 
             self.ptySession = session
-            logger.info("PTY session started successfully")
 
             // Wait for Claude to initialize
             try? await Task.sleep(nanoseconds: 8_000_000_000)  // 8 seconds
@@ -156,8 +178,11 @@ class UsageMonitor: ObservableObject {
     }
 
     private func handleBufferOutput(_ buffer: String) {
-        // Check if buffer contains usage data
-        guard buffer.contains("% used") && buffer.contains("Current session") else {
+        // Strip ANSI escapes before checking - the TUI inserts cursor movement
+        // sequences (e.g. \e[1C) between "%" and "used" in the raw output
+        let stripped = stripANSISequences(from: buffer)
+
+        guard stripped.contains("% used") && stripped.contains("Current session") else {
             return
         }
 
@@ -188,14 +213,12 @@ class UsageMonitor: ObservableObject {
         // Attempt restart after delay
         Task.detached(priority: .background) { [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)  // 5 seconds
-            logger.info("Attempting to restart monitoring...")
             await self?.startBackgroundSession()
         }
     }
 
     func requestUsageUpdate() {
         guard let session = ptySession, session.state.isRunning else {
-            logger.warning("PTY session is not running")
             DispatchQueue.main.async { [weak self] in
                 self?.fetchStatus = .failed
             }
@@ -203,7 +226,6 @@ class UsageMonitor: ObservableObject {
         }
 
         guard attemptCount < maxAttempts else {
-            logger.warning("Max attempts reached")
             DispatchQueue.main.async { [weak self] in
                 self?.fetchStatus = .failed
             }
@@ -221,18 +243,24 @@ class UsageMonitor: ObservableObject {
 
         attemptCount += 1
 
-        // Only send /usage command on first attempt
         if attemptCount == 1 {
-            // Send command sequence with non-blocking delays
-            // Using DispatchQueue.main.asyncAfter instead of usleep to avoid blocking the main thread
+            // Send /usage command on first attempt
             sendUsageCommandSequence(to: session)
         } else {
-            logger.debug("Waiting for panel to load (not sending command again)")
+            // On retry attempts, poll the buffer directly since the TUI's continuous
+            // redraws prevent the debounce-based onOutput callback from ever firing
+            let buffer = session.getBuffer()
+            let stripped = stripANSISequences(from: buffer)
+
+            if stripped.contains("% used") && stripped.contains("Current session") {
+                parseUsageOutput(from: buffer)
+                return
+            }
         }
 
         // Schedule next attempt if we haven't reached max
         if attemptCount < maxAttempts {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
                 self?.requestUsageUpdate()
             }
         }
@@ -240,24 +268,42 @@ class UsageMonitor: ObservableObject {
 
     /// Send the /usage command sequence with non-blocking delays
     private func sendUsageCommandSequence(to session: PTYSession) {
-        // First, send Escape to clear any existing input
+        // First, send Escape to close any open settings panel or clear input
         session.write("\u{1B}")
 
-        // 100ms delay before typing command
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak session] in
+        // 500ms delay to let any open panel fully close before typing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak session] in
             guard let session = session, session.state.isRunning else { return }
 
-            // Type: /usage + space
-            session.write("/usage ")
+            // Type each character individually with delays to simulate real keyboard input.
+            // The Claude Code TUI uses a React/Ink-based input that processes keystrokes
+            // individually. The "/" character triggers command mode, and subsequent
+            // characters must arrive as individual key events for proper recognition.
+            let chars = Array("/usage")
+            let charDelay = 0.05 // 50ms between characters
 
-            // 200ms delay to let autocomplete settle
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak session] in
-                guard let session = session, session.state.isRunning else { return }
-
-                // Send Enter key
-                session.write("\r")
-                logger.debug("Sent '/usage ' + Enter")
+            for (i, char) in chars.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * charDelay) { [weak session] in
+                    guard let session = session, session.state.isRunning else { return }
+                    session.write(String(char))
+                }
             }
+
+            // Send Enter after all characters have been typed
+            let enterDelay = Double(chars.count) * charDelay + 0.3
+            DispatchQueue.main.asyncAfter(deadline: .now() + enterDelay) { [weak session] in
+                guard let session = session, session.state.isRunning else { return }
+                session.write("\r")
+            }
+        }
+    }
+
+    /// Dismiss the settings panel by sending Escape
+    private func dismissSettingsPanel() {
+        guard let session = ptySession, session.state.isRunning else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak session] in
+            guard let session = session, session.state.isRunning else { return }
+            session.write("\u{1B}")
         }
     }
 
@@ -271,32 +317,38 @@ class UsageMonitor: ObservableObject {
         }
     }
 
-    private func parseUsageOutput(from buffer: String) {
-        // Parse the output buffer for usage statistics
-        // Format:
-        // Current session
-        //  ███                                                6% used
-        //  Resets 12:59pm (Europe/Amsterdam)
-        //
-        // Current week (all models)
-        //  ██                                                 4% used
-        //  Resets Dec 2, 8:59am (Europe/Amsterdam)
-        //
-        // Current week (Sonnet only)
-        //  ███                                                6% used
-        //  Resets Dec 2, 8:59am (Europe/Amsterdam)
+    /// Strip all ANSI/VT100 escape sequences from terminal output.
+    /// CSI sequences are replaced with a space (they often represent cursor movement
+    /// that provides visual spacing in the TUI), then runs of multiple spaces are collapsed.
+    private func stripANSISequences(from text: String) -> String {
+        var result = text
 
-        // Clean ANSI escape codes from buffer
-        var cleanBuffer: String
-        do {
-            let regex = try NSRegularExpression(pattern: "\u{001B}\\[[0-9;]*[a-zA-Z]", options: [])
-            let range = NSRange(location: 0, length: buffer.utf16.count)
-            cleanBuffer = regex.stringByReplacingMatches(in: buffer, options: [], range: range, withTemplate: "")
-        } catch {
-            // If regex fails, just use the raw buffer
-            cleanBuffer = buffer
+        // Standard CSI sequences: \e[...X (where X is a letter)
+        // Replace with space — cursor movement sequences like \e[1C represent visual spacing
+        if let regex = try? NSRegularExpression(pattern: "\u{001B}\\[[0-9;]*[a-zA-Z]") {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(location: 0, length: result.utf16.count), withTemplate: " ")
         }
 
+        // DEC private mode sequences: \e[?...X
+        if let regex = try? NSRegularExpression(pattern: "\u{001B}\\[\\?[0-9;]*[a-zA-Z]") {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(location: 0, length: result.utf16.count), withTemplate: "")
+        }
+
+        // OSC sequences: \e]...\a
+        if let regex = try? NSRegularExpression(pattern: "\u{001B}\\][^\u{0007}]*\u{0007}") {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(location: 0, length: result.utf16.count), withTemplate: "")
+        }
+
+        // Collapse runs of multiple spaces into a single space
+        if let regex = try? NSRegularExpression(pattern: " {2,}") {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(location: 0, length: result.utf16.count), withTemplate: " ")
+        }
+
+        return result
+    }
+
+    private func parseUsageOutput(from buffer: String) {
+        let cleanBuffer = stripANSISequences(from: buffer)
         let lines = cleanBuffer.components(separatedBy: "\n")
         var newStats = UsageStats()
 
@@ -306,6 +358,7 @@ class UsageMonitor: ObservableObject {
 
         for line in lines {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmedLine.isEmpty else { continue }
 
             // Detect sections (but don't skip - percentage might be on same line)
             if trimmedLine.contains("Current session") {
@@ -316,8 +369,8 @@ class UsageMonitor: ObservableObject {
                 isSessionSection = false
                 isWeeklySection = true
                 isSonnetSection = false
-            } else if trimmedLine.contains("Current week (Sonnet") {
-                // Matches "Current week (Sonnet only)" or similar
+            } else if trimmedLine.contains("Current week (Sonnet") || trimmedLine.contains("Current week (Opus") {
+                // Matches "Current week (Sonnet only)" or "Current week (Opus only)"
                 isSessionSection = false
                 isWeeklySection = false
                 isSonnetSection = true
@@ -345,17 +398,19 @@ class UsageMonitor: ObservableObject {
 
         // Only update if we found valid data
         if newStats.dailyTokensUsed > 0 || newStats.weeklyTokensUsed > 0 {
-            logger.info("Parsed stats - Daily: \(newStats.dailyTokensUsed)%, Weekly: \(newStats.weeklyTokensUsed)%")
+            logger.info("Usage: session \(newStats.dailyTokensUsed)%, weekly \(newStats.weeklyTokensUsed)%, sonnet/opus \(newStats.sonnetTokensUsed)%")
 
-            // Capture values before async block to avoid weak self issues
             let stats = newStats
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.usageStats = stats
                 self.fetchStatus = .success
             }
+
+            // Dismiss the settings panel so the session is ready for the next poll
+            dismissSettingsPanel()
         } else {
-            logger.debug("No valid stats found in buffer (\(cleanBuffer.count) chars)")
+            logger.warning("Failed to parse usage percentages from output")
             // Only set failed if we've reached max attempts
             if self.attemptCount >= self.maxAttempts {
                 DispatchQueue.main.async { [weak self] in
@@ -366,22 +421,18 @@ class UsageMonitor: ObservableObject {
     }
 
     func cleanup() {
-        logger.info("Cleaning up usage monitor session")
-
         // 1. Stop polling first
         pollTimer?.invalidate()
         pollTimer = nil
 
         // 2. Send exit command before terminating (best effort)
         if let session = ptySession, session.state.isRunning {
-            session.write("/exit \r")
+            session.write("/exit\r")
         }
 
         // 3. Terminate PTY session (handles all cleanup internally)
         ptySession?.terminate()
         ptySession = nil
-
-        logger.info("Usage monitor cleanup complete")
     }
 
     deinit {
