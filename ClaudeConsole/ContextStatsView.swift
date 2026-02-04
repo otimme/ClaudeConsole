@@ -56,7 +56,7 @@ struct ContextStatsView: View {
 
             // Compact breakdown
             HStack(spacing: 8) {
-                CompactStatItem(label: "SYS", value: contextMonitor.contextStats.systemPrompt + contextMonitor.contextStats.systemTools)
+                CompactStatItem(label: "SYS", value: contextMonitor.contextStats.systemPrompt + contextMonitor.contextStats.systemTools + contextMonitor.contextStats.mcpTools)
                 CompactStatItem(label: "MSG", value: contextMonitor.contextStats.messages)
                 CompactStatItem(label: "FREE", value: contextMonitor.contextStats.freeSpace, highlight: true)
             }

@@ -23,7 +23,14 @@
       "Bash(defaults read:*)",
       "Bash(chmod:*)",
       "Bash(/tmp/fix_text_macros.sh)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(claude mcp serve:*)",
+      "Bash(lsof:*)",
+      "Bash(echo:*)",
+      "Bash(env:*)",
+      "Bash(xargs basename:*)",
+      "Bash(# Check which session dirs were recently accessed for d in /tmp/claude-501/-Users-Olaf-Documents-Projects-Prive-AI-ClaudeConsole/*/; do if [ -d \"\"$d\"\" ]; then stat -f \"\"%m %N\"\" \"\"$d\"\" fi done)",
+      "Bash(claude:*)"
     ],
     "deny": [],
     "ask": []
