@@ -20,6 +20,7 @@ struct ContentView: View {
 
     @StateObject private var usageMonitor = UsageMonitor()
     @StateObject private var contextMonitor = ContextMonitor()
+    @StateObject private var gitMonitor = GitMonitor()
 
     // MARK: - Shared Resources (read from SharedResourceManager)
     private var sharedMonitor: PS4ControllerMonitor { SharedResourceManager.shared.ps4Monitor }
@@ -32,6 +33,8 @@ struct ContentView: View {
     @State private var showPS4Controller = false
     @State private var useCompactStatusBar = false
     @State private var showPS4StatusBar = false  // Always starts hidden, no persistence
+    @State private var isStreaming = false
+    @State private var streamingDebounceTimer: Timer?
 
     // Project Launcher
     @State private var showProjectLauncher = false
@@ -108,7 +111,11 @@ struct ContentView: View {
                 // Fallout-style status bar at the very top
                 FalloutStatusBar(
                     title: statusBarTitle,
-                    showIndicators: true
+                    modelTier: usageMonitor.modelTier,
+                    gitBranch: gitMonitor.branchName,
+                    gitIsDirty: gitMonitor.isDirty,
+                    isGitRepo: gitMonitor.isGitRepo,
+                    isStreaming: isStreaming
                 )
 
                 // PS4 Controller status bar (only when connected)
@@ -156,10 +163,41 @@ struct ContentView: View {
                             onOutput: { [weak contextMonitor] text in
                                 // Forward terminal output directly to this window's ContextMonitor
                                 contextMonitor?.receiveTerminalOutput(text)
+
+                                // Streaming detection: strip ANSI codes then check length
+                                // Keystroke echoes are 1-2 visible chars but padded with ANSI sequences
+                                let stripped = text.replacingOccurrences(
+                                    of: "\u{001B}\\[[0-9;?]*[a-zA-Z]",
+                                    with: "",
+                                    options: .regularExpression
+                                )
+                                if stripped.count > 10 {
+                                    DispatchQueue.main.async {
+                                        isStreaming = true
+                                        streamingDebounceTimer?.invalidate()
+                                        streamingDebounceTimer = Timer.scheduledTimer(
+                                            withTimeInterval: 0.5,
+                                            repeats: false
+                                        ) { _ in
+                                            isStreaming = false
+                                        }
+                                    }
+                                }
                             },
-                            onClaudeStarted: { [weak windowContext] workingDir in
+                            onClaudeStarted: { [weak windowContext, weak usageMonitor] workingDir in
+                                logger.info("onClaudeStarted fired with workingDir: \(workingDir)")
                                 // Forward Claude started event to this window's context
                                 windowContext?.receiveClaudeStarted(workingDirectory: workingDir)
+                                // Detect model from session JSONL (delayed to let session file be created)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                                    let projectPath = selectedProject?.path.path
+                                    usageMonitor?.detectModelFromSession(projectPath: projectPath)
+                                    // If no project was selected via launcher, use workingDir as fallback for git
+                                    if selectedProject == nil {
+                                        logger.info("No project selected, using workingDir for git: \(workingDir)")
+                                        gitMonitor.setWorkingDirectory(workingDir)
+                                    }
+                                }
                             }
                         )
                         .frame(minWidth: 600, minHeight: 400)
@@ -396,14 +434,17 @@ struct ContentView: View {
                 forName: .appWillTerminate,
                 object: nil,
                 queue: .main
-            ) { [terminalController, usageMonitor] _ in
-                Self.performCleanup(terminal: terminalController, usageMonitor: usageMonitor)
+            ) { [terminalController, usageMonitor, gitMonitor] _ in
+                Self.performCleanup(terminal: terminalController, usageMonitor: usageMonitor, gitMonitor: gitMonitor)
             }
             subscriptionManager.addObserver(terminationObserver)
         }
         .onDisappear {
             // Clean up all subscriptions and observers when view disappears
             subscriptionManager.removeAll()
+            streamingDebounceTimer?.invalidate()
+            streamingDebounceTimer = nil
+            gitMonitor.cleanup()
         }
         .onChange(of: terminalController) { _, newController in
             // FIX: Update AppCommandExecutor's terminal controller when it becomes available
@@ -418,7 +459,7 @@ struct ContentView: View {
         }
     }
 
-    static func performCleanup(terminal: LocalProcessTerminalView?, usageMonitor: UsageMonitor) {
+    static func performCleanup(terminal: LocalProcessTerminalView?, usageMonitor: UsageMonitor, gitMonitor: GitMonitor? = nil) {
         logger.info("Cleaning up sessions...")
 
         // Send exit command to terminal if Claude is likely running
@@ -430,8 +471,9 @@ struct ContentView: View {
             }
         }
 
-        // Cleanup usage monitor
+        // Cleanup monitors
         usageMonitor.cleanup()
+        gitMonitor?.cleanup()
 
         logger.info("Session cleanup complete")
     }
@@ -471,6 +513,11 @@ struct ContentView: View {
     private func launchProject(_ project: Project) {
         hasLaunchedProject = true
 
+        // Set git working directory immediately from the known project path
+        let projectDir = project.path.path
+        logger.info("Project selected: \(project.name) at \(projectDir)")
+        gitMonitor.setWorkingDirectory(projectDir)
+
         // Wait for terminal to be ready
         guard let terminal = terminalController else {
             // Terminal not ready yet, schedule retry
@@ -481,7 +528,7 @@ struct ContentView: View {
         }
 
         // Navigate to project directory
-        let cdCommand = "cd \"\(project.path.path)\"\n"
+        let cdCommand = "cd \"\(projectDir)\"\n"
         if let data = cdCommand.data(using: .utf8) {
             terminal.send(data: ArraySlice(data))
         }
