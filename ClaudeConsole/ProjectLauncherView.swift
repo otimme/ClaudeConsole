@@ -2,7 +2,7 @@
 //  ProjectLauncherView.swift
 //  ClaudeConsole
 //
-//  SwiftUI modal for selecting Claude projects
+//  Fallout Pip-Boy themed project selector modal
 //
 
 import SwiftUI
@@ -19,131 +19,57 @@ struct ProjectLauncherView: View {
     @State private var cancellables = Set<AnyCancellable>()
     @State private var originalButtonHandler: ((PS4Button) -> Void)?
 
+    // CRT power-on animation
+    @State private var crtPowerOn = false
+
+    // Title glow pulse
+    @State private var titleGlowRadius: CGFloat = 2
+
     let onProjectSelected: (Project) -> Void
     let onSkip: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Select Claude Project")
-                    .font(.title2)
-                    .fontWeight(.semibold)
+        ZStack {
+            // Full background
+            Color.Fallout.background
+                .ignoresSafeArea()
 
-                Spacer()
+            // Main content wrapped in fallout frame
+            VStack(spacing: 0) {
+                // Header
+                headerSection
 
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "gear")
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
+                FalloutDivider()
+                    .padding(.horizontal, 16)
+
+                // Search bar
+                searchBarSection
+
+                FalloutDivider()
+                    .padding(.horizontal, 16)
+
+                // Project list
+                projectListSection
+
+                FalloutDivider()
+                    .padding(.horizontal, 16)
+
+                // Footer
+                footerSection
             }
-            .padding()
+            .falloutFrame(title: "PROJECT DIRECTORY", corners: .beveled)
 
-            Divider()
-
-            // Search bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-
-                TextField("Search projects...", text: $controller.searchText)
-                    .textFieldStyle(.plain)
-
-                if !controller.searchText.isEmpty {
-                    Button(action: { controller.searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
+            // CRT effects overlay (lighter for modal)
+            ZStack {
+                ScanlineOverlay(lineOpacity: 0.15)
+                VignetteOverlay(intensity: 0.4)
             }
-            .padding()
-
-            Divider()
-
-            // Project list
-            if controller.isScanning {
-                VStack(spacing: 16) {
-                    ProgressView()
-                    Text("Scanning for projects...")
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if controller.filteredProjects.isEmpty {
-                VStack(spacing: 16) {
-                    Image(systemName: "folder.badge.questionmark")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-
-                    Text("No projects found")
-                        .font(.title3)
-
-                    Text("Projects must contain a CLAUDE.md file")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Button("Refresh") {
-                        Task {
-                            await controller.refreshProjects()
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(controller.filteredProjects) { project in
-                                ProjectRow(
-                                    project: project,
-                                    isSelected: controller.selectedProject?.id == project.id
-                                )
-                                .id(project.id)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    // Clicking a project launches it immediately
-                                    controller.selectProject(project)
-                                    onProjectSelected(project)
-                                    dismiss()
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                    .onChange(of: controller.selectedProject?.id) { _, newId in
-                        if let id = newId {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                proxy.scrollTo(id, anchor: .center)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            // Footer buttons
-            HStack {
-                Button("Refresh") {
-                    Task {
-                        await controller.refreshProjects()
-                    }
-                }
-                .disabled(controller.isScanning)
-
-                Spacer()
-
-                Button("Skip") {
-                    controller.skipLauncher()
-                    onSkip()
-                    dismiss()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-            }
-            .padding()
+            .allowsHitTesting(false)
         }
         .frame(width: 700, height: 600)
+        // CRT power-on animation
+        .scaleEffect(x: 1.0, y: crtPowerOn ? 1.0 : 0.02)
+        .opacity(crtPowerOn ? 1.0 : 0.5)
         .task {
             if controller.projects.isEmpty {
                 await controller.scanProjects()
@@ -153,7 +79,6 @@ struct ProjectLauncherView: View {
             ProjectSettingsView(settings: $controller.settings)
         }
         .onKeyPress(.return) {
-            // Enter key launches selected project
             if let project = controller.selectedProject {
                 controller.selectProject(project)
                 onProjectSelected(project)
@@ -163,21 +88,239 @@ struct ProjectLauncherView: View {
             return .ignored
         }
         .onKeyPress(.upArrow) {
-            // Up arrow navigates up in the project list
             navigateUp()
             return .handled
         }
         .onKeyPress(.downArrow) {
-            // Down arrow navigates down in the project list
             navigateDown()
             return .handled
         }
+        .onChange(of: controller.searchText) { _, _ in
+            // Auto-select top result when search text changes
+            controller.selectedProject = controller.filteredProjects.first
+        }
         .onAppear {
             setupPS4Controller()
+            // Trigger CRT power-on animation
+            withAnimation(.easeOut(duration: 0.3)) {
+                crtPowerOn = true
+            }
+            // Start title glow pulse
+            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                titleGlowRadius = 5
+            }
         }
         .onDisappear {
             cleanupPS4Controller()
         }
+    }
+
+    // MARK: - Header Section
+
+    private var headerSection: some View {
+        VStack(spacing: 4) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ROBCO INDUSTRIES (TM) PROJECT SELECTOR")
+                        .font(.Fallout.subheading)
+                        .foregroundColor(Color.Fallout.primary)
+                        .tracking(2)
+                        .falloutGlow(radius: titleGlowRadius)
+
+                    Text("SELECT TARGET DIRECTORY")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.secondary)
+                        .tracking(3)
+                }
+
+                Spacer()
+
+                Button(action: { showSettings = true }) {
+                    Text("[CONFIG]")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - Search Bar Section
+
+    private var searchBarSection: some View {
+        HStack(spacing: 8) {
+            Text(">")
+                .font(.Fallout.body)
+                .foregroundColor(Color.Fallout.primary)
+                .falloutGlow(radius: 2)
+
+            TextField("ENTER SEARCH QUERY...", text: $controller.searchText)
+                .textFieldStyle(.plain)
+                .font(.Fallout.body)
+                .foregroundColor(Color.Fallout.primary)
+                .tint(Color.Fallout.primary)
+
+            if !controller.searchText.isEmpty {
+                Button(action: { controller.searchText = "" }) {
+                    Text("[CLR]")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.Fallout.background)
+        .clipShape(BeveledRectangle(cornerSize: 4))
+        .overlay(
+            BeveledRectangle(cornerSize: 4)
+                .stroke(Color.Fallout.borderDim, lineWidth: 1)
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    // MARK: - Project List Section
+
+    private var projectListSection: some View {
+        Group {
+            if controller.isScanning {
+                VStack(spacing: 16) {
+                    ProcessingIndicator()
+
+                    Text("SCANNING DIRECTORIES...")
+                        .font(.Fallout.body)
+                        .foregroundColor(Color.Fallout.primary)
+                        .tracking(2)
+                        .falloutGlow(radius: 2)
+
+                    Text("LOCATING CLAUDE.MD FILES")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if controller.filteredProjects.isEmpty {
+                VStack(spacing: 16) {
+                    Text("[!]")
+                        .font(.Fallout.title)
+                        .foregroundColor(Color.Fallout.warning)
+                        .falloutGlow(color: Color.Fallout.warning, radius: 4)
+
+                    Text("NO ENTRIES FOUND")
+                        .font(.Fallout.heading)
+                        .foregroundColor(Color.Fallout.warning)
+                        .tracking(2)
+
+                    Text("DIRECTORIES MUST CONTAIN CLAUDE.MD")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.tertiary)
+
+                    FalloutDivider()
+                        .frame(width: 200)
+
+                    Button("RESCAN") {
+                        Task {
+                            await controller.refreshProjects()
+                        }
+                    }
+                    .buttonStyle(.fallout)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 0) {
+                    // Entry count
+                    HStack {
+                        if controller.searchText.isEmpty {
+                            Text("FOUND \(controller.filteredProjects.count) ENTRIES")
+                                .font(.Fallout.caption)
+                                .foregroundColor(Color.Fallout.tertiary)
+                                .tracking(2)
+                        } else {
+                            Text("SHOWING \(controller.filteredProjects.count) OF \(controller.projects.count) ENTRIES")
+                                .font(.Fallout.caption)
+                                .foregroundColor(Color.Fallout.tertiary)
+                                .tracking(2)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(Array(controller.filteredProjects.enumerated()), id: \.element.id) { index, project in
+                                    ProjectRow(
+                                        project: project,
+                                        isSelected: controller.selectedProject?.id == project.id,
+                                        index: index
+                                    )
+                                    .id(project.id)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        controller.selectProject(project)
+                                        onProjectSelected(project)
+                                        dismiss()
+                                    }
+                                }
+                            }
+                        }
+                        .scrollIndicators(.hidden)
+                        .onChange(of: controller.selectedProject?.id) { _, newId in
+                            if let id = newId {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    proxy.scrollTo(id, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Footer Section
+
+    private var footerSection: some View {
+        HStack {
+            Button("RESCAN") {
+                Task {
+                    await controller.refreshProjects()
+                }
+            }
+            .buttonStyle(.fallout)
+            .disabled(controller.isScanning)
+
+            Spacer()
+
+            if ps4Monitor.isConnected {
+                Text("D-PAD: NAVIGATE | R2: SELECT | ESC: SKIP")
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.tertiary)
+                    .tracking(1)
+            } else {
+                Text("ARROWS: NAVIGATE | ENTER: SELECT | ESC: SKIP")
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.tertiary)
+                    .tracking(1)
+            }
+
+            Spacer()
+
+            Button("SKIP") {
+                controller.skipLauncher()
+                onSkip()
+                dismiss()
+            }
+            .buttonStyle(.fallout)
+            .keyboardShortcut(.escape, modifiers: [])
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     // MARK: - PS4 Controller Support
@@ -295,121 +438,263 @@ struct ProjectLauncherView: View {
     }
 }
 
+// MARK: - Project Row
+
 struct ProjectRow: View {
     let project: Project
     let isSelected: Bool
+    let index: Int
+
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "folder.fill")
-                .font(.title2)
-                .foregroundColor(.accentColor)
+        HStack(spacing: 10) {
+            // Index number
+            Text(String(format: "%02d.", index + 1))
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.tertiary)
+                .frame(width: 28, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(project.name)
-                        .font(.headline)
+            // Folder icon
+            Image(systemName: "folder")
+                .font(.system(size: 14))
+                .foregroundColor(isSelected ? Color.Fallout.primary : Color.Fallout.secondary)
+                .frame(width: 20)
+
+            // Project name and path
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(project.name.uppercased())
+                        .font(.Fallout.body)
+                        .foregroundColor(isSelected ? Color.Fallout.primary : Color.Fallout.secondary)
+                        .tracking(0.5)
 
                     if let branch = project.gitBranch {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.branch")
-                                .font(.caption)
+                                .font(.system(size: 10))
                             Text(branch)
-                                .font(.caption)
+                                .font(.Fallout.caption)
                         }
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Color.Fallout.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Color.Fallout.primary.opacity(0.08)
+                        )
+                        .clipShape(BeveledRectangle(cornerSize: 3))
+                        .overlay(
+                            BeveledRectangle(cornerSize: 3)
+                                .stroke(Color.Fallout.borderDim, lineWidth: 0.5)
+                        )
                     }
                 }
 
-                Text(project.path.path)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text(project.path.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.tertiary)
                     .lineLimit(1)
-
-                Text(formatDate(project.lastModified))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.accentColor)
-                    .font(.title3)
-            }
+            // Modified date
+            Text(formatDate(project.lastModified).uppercased())
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.tertiary)
         }
-        .padding()
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-        .cornerRadius(8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            ZStack(alignment: .leading) {
+                // Selection / hover background
+                if isSelected {
+                    Color.Fallout.primary.opacity(0.15)
+                } else if isHovered {
+                    Color.Fallout.primary.opacity(0.05)
+                } else {
+                    Color.clear
+                }
+
+                // Left green selection bar
+                if isSelected {
+                    Rectangle()
+                        .fill(Color.Fallout.primary)
+                        .frame(width: 3)
+                        .falloutGlow(radius: 3)
+                }
+            }
+        )
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .onHover { hovering in
+            isHovered = hovering
+        }
     }
 
     private func formatDate(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return "Modified " + formatter.localizedString(for: date, relativeTo: Date())
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
+
+// MARK: - Settings View
 
 struct ProjectSettingsView: View {
     @Binding var settings: ProjectLauncherSettings
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Project Launcher Settings")
-                .font(.title2)
-                .fontWeight(.semibold)
+        ZStack {
+            Color.Fallout.background
+                .ignoresSafeArea()
 
-            Form {
-                Section("Search Paths") {
-                    Text("Directories to scan for CLAUDE.md files")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                // Title
+                Text("SYSTEM CONFIGURATION")
+                    .font(.Fallout.heading)
+                    .foregroundColor(Color.Fallout.primary)
+                    .tracking(2)
+                    .falloutGlow(radius: 3)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
 
-                    ForEach(Array(settings.searchPaths.enumerated()), id: \.offset) { index, path in
-                        TextField("Path", text: Binding(
-                            get: { settings.searchPaths[index] },
-                            set: { settings.searchPaths[index] = $0 }
-                        ))
+                FalloutDivider()
+                    .padding(.horizontal, 16)
+
+                // Search Paths Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("SEARCH PATHS")
+                        .font(.Fallout.subheading)
+                        .foregroundColor(Color.Fallout.secondary)
+                        .tracking(2)
+
+                    Text("DIRECTORIES TO SCAN FOR CLAUDE.MD FILES")
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.tertiary)
+
+                    ForEach(Array(settings.searchPaths.enumerated()), id: \.offset) { index, _ in
+                        HStack(spacing: 8) {
+                            Text(">")
+                                .font(.Fallout.body)
+                                .foregroundColor(Color.Fallout.primary)
+                                .falloutGlow(radius: 2)
+
+                            TextField("PATH", text: Binding(
+                                get: { settings.searchPaths[index] },
+                                set: { settings.searchPaths[index] = $0 }
+                            ))
+                            .textFieldStyle(.plain)
+                            .font(.Fallout.body)
+                            .foregroundColor(Color.Fallout.primary)
+                            .tint(Color.Fallout.primary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.Fallout.background)
+                        .clipShape(BeveledRectangle(cornerSize: 4))
+                        .overlay(
+                            BeveledRectangle(cornerSize: 4)
+                                .stroke(Color.Fallout.borderDim, lineWidth: 1)
+                        )
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
-                Section("Settings") {
+                FalloutDivider()
+                    .padding(.horizontal, 16)
+
+                // Settings Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("PARAMETERS")
+                        .font(.Fallout.subheading)
+                        .foregroundColor(Color.Fallout.secondary)
+                        .tracking(2)
+
                     HStack {
-                        Text("Max Depth")
+                        Text("MAX DEPTH")
+                            .font(.Fallout.body)
+                            .foregroundColor(Color.Fallout.secondary)
+
                         Spacer()
-                        Stepper("\(settings.maxDepth)", value: $settings.maxDepth, in: 1...10)
+
+                        HStack(spacing: 8) {
+                            Text("\(settings.maxDepth)")
+                                .font(.Fallout.stats)
+                                .foregroundColor(Color.Fallout.primary)
+
+                            Stepper("", value: $settings.maxDepth, in: 1...10)
+                                .labelsHidden()
+                        }
                     }
 
                     HStack {
-                        Text("Cache Expiration")
+                        Text("CACHE EXPIRATION")
+                            .font(.Fallout.body)
+                            .foregroundColor(Color.Fallout.secondary)
+
                         Spacer()
-                        Stepper("\(settings.cacheExpirationMinutes) min", value: $settings.cacheExpirationMinutes, in: 1...60)
+
+                        HStack(spacing: 8) {
+                            Text("\(settings.cacheExpirationMinutes) MIN")
+                                .font(.Fallout.stats)
+                                .foregroundColor(Color.Fallout.primary)
+
+                            Stepper("", value: $settings.cacheExpirationMinutes, in: 1...60)
+                                .labelsHidden()
+                        }
                     }
 
-                    Toggle("Enable Auto-Launch", isOn: $settings.enableAutoLaunch)
+                    HStack {
+                        Text("ENABLE AUTO-LAUNCH")
+                            .font(.Fallout.body)
+                            .foregroundColor(Color.Fallout.secondary)
+
+                        Spacer()
+
+                        Toggle("", isOn: $settings.enableAutoLaunch)
+                            .labelsHidden()
+                            .tint(Color.Fallout.primary)
+                    }
                 }
-            }
-            .formStyle(.grouped)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
-            HStack {
                 Spacer()
 
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
+                FalloutDivider()
+                    .padding(.horizontal, 16)
 
-                Button("Save") {
-                    settings.save()
-                    dismiss()
+                // Footer buttons
+                HStack {
+                    Spacer()
+
+                    Button("CANCEL") {
+                        dismiss()
+                    }
+                    .buttonStyle(.fallout)
+                    .keyboardShortcut(.escape, modifiers: [])
+
+                    Button("SAVE") {
+                        settings.save()
+                        dismiss()
+                    }
+                    .buttonStyle(.fallout)
+                    .keyboardShortcut(.return, modifiers: [])
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: [])
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
+            .falloutFrame(title: "CONFIGURATION", corners: .beveled)
+
+            // CRT effects overlay
+            ZStack {
+                ScanlineOverlay(lineOpacity: 0.15)
+                VignetteOverlay(intensity: 0.4)
+            }
+            .allowsHitTesting(false)
         }
-        .padding()
-        .frame(width: 500, height: 500)
+        .frame(width: 500, height: 580)
     }
 }
