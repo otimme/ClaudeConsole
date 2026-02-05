@@ -46,6 +46,7 @@ struct UsageStats: Codable {
 class UsageMonitor: ObservableObject {
     @Published var usageStats = UsageStats()
     @Published var fetchStatus: UsageFetchStatus = .idle
+    @Published var modelTier: String = ""  // "Opus", "Sonnet", "Haiku", or ""
 
     // Thread-safe PTY session
     private var ptySession: PTYSession?
@@ -178,11 +179,18 @@ class UsageMonitor: ObservableObject {
     }
 
     private func handleBufferOutput(_ buffer: String) {
+        logger.debug("handleBufferOutput: received \(buffer.count) chars")
+
         // Strip ANSI escapes before checking - the TUI inserts cursor movement
         // sequences (e.g. \e[1C) between "%" and "used" in the raw output
         let stripped = stripANSISequences(from: buffer)
 
-        guard stripped.contains("% used") && stripped.contains("Current session") else {
+        let hasSession = stripped.contains("Current session")
+        let hasUsed = stripped.contains("% used")
+        logger.debug("handleBufferOutput: stripped \(stripped.count) chars, hasSession=\(hasSession), hasUsed=\(hasUsed)")
+
+        guard hasUsed && hasSession else {
+            logger.debug("handleBufferOutput: output incomplete, waiting for retry")
             return
         }
 
@@ -219,6 +227,7 @@ class UsageMonitor: ObservableObject {
 
     func requestUsageUpdate() {
         guard let session = ptySession, session.state.isRunning else {
+            logger.warning("requestUsageUpdate: session not running")
             DispatchQueue.main.async { [weak self] in
                 self?.fetchStatus = .failed
             }
@@ -226,6 +235,11 @@ class UsageMonitor: ObservableObject {
         }
 
         guard attemptCount < maxAttempts else {
+            // Log last buffer contents on final failure
+            let buffer = session.getBuffer()
+            let stripped = stripANSISequences(from: buffer)
+            let lastChars = stripped.count > 200 ? String(stripped.suffix(200)) : stripped
+            logger.warning("All \(self.maxAttempts) attempts failed. Last buffer (\(stripped.count) chars): \(lastChars)")
             DispatchQueue.main.async { [weak self] in
                 self?.fetchStatus = .failed
             }
@@ -239,9 +253,11 @@ class UsageMonitor: ObservableObject {
             }
             // Clear buffer before starting new fetch cycle
             session.clearBuffer()
+            logger.info("requestUsageUpdate: cleared buffer, starting new fetch cycle")
         }
 
         attemptCount += 1
+        logger.info("requestUsageUpdate: attempt \(self.attemptCount)/\(self.maxAttempts)")
 
         if attemptCount == 1 {
             // Send /usage command on first attempt
@@ -252,7 +268,12 @@ class UsageMonitor: ObservableObject {
             let buffer = session.getBuffer()
             let stripped = stripANSISequences(from: buffer)
 
-            if stripped.contains("% used") && stripped.contains("Current session") {
+            let hasSession = stripped.contains("Current session")
+            let hasUsed = stripped.contains("% used")
+            logger.info("Attempt \(self.attemptCount): checking buffer (\(buffer.count) chars), markers: session=\(hasSession), used=\(hasUsed)")
+
+            if hasUsed && hasSession {
+                logger.info("Attempt \(self.attemptCount): found usage output, parsing")
                 parseUsageOutput(from: buffer)
                 return
             }
@@ -268,12 +289,18 @@ class UsageMonitor: ObservableObject {
 
     /// Send the /usage command sequence with non-blocking delays
     private func sendUsageCommandSequence(to session: PTYSession) {
+        logger.info("sendUsageCommandSequence: sending escape + /usage + enter")
+
         // First, send Escape to close any open settings panel or clear input
-        session.write("\u{1B}")
+        let escResult = session.write("\u{1B}")
+        logger.debug("sendUsageCommandSequence: escape write returned \(escResult) bytes")
 
         // 500ms delay to let any open panel fully close before typing
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak session] in
-            guard let session = session, session.state.isRunning else { return }
+            guard let session = session, session.state.isRunning else {
+                logger.warning("sendUsageCommandSequence: session gone before typing /usage")
+                return
+            }
 
             // Type each character individually with delays to simulate real keyboard input.
             // The Claude Code TUI uses a React/Ink-based input that processes keystrokes
@@ -285,15 +312,20 @@ class UsageMonitor: ObservableObject {
             for (i, char) in chars.enumerated() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * charDelay) { [weak session] in
                     guard let session = session, session.state.isRunning else { return }
-                    session.write(String(char))
+                    let result = session.write(String(char))
+                    logger.debug("sendUsageCommandSequence: wrote '\(char)' → \(result) bytes")
                 }
             }
 
             // Send Enter after all characters have been typed
             let enterDelay = Double(chars.count) * charDelay + 0.3
             DispatchQueue.main.asyncAfter(deadline: .now() + enterDelay) { [weak session] in
-                guard let session = session, session.state.isRunning else { return }
-                session.write("\r")
+                guard let session = session, session.state.isRunning else {
+                    logger.warning("sendUsageCommandSequence: session gone before Enter")
+                    return
+                }
+                let result = session.write("\r")
+                logger.info("sendUsageCommandSequence: enter write returned \(result) bytes")
             }
         }
     }
@@ -349,6 +381,8 @@ class UsageMonitor: ObservableObject {
 
     private func parseUsageOutput(from buffer: String) {
         let cleanBuffer = stripANSISequences(from: buffer)
+        logger.info("parseUsageOutput: parsing \(cleanBuffer.count) chars")
+
         let lines = cleanBuffer.components(separatedBy: "\n")
         var newStats = UsageStats()
 
@@ -365,15 +399,17 @@ class UsageMonitor: ObservableObject {
                 isSessionSection = true
                 isWeeklySection = false
                 isSonnetSection = false
+                logger.debug("parseUsageOutput: found section 'Current session'")
             } else if trimmedLine.contains("Current week (all models)") {
                 isSessionSection = false
                 isWeeklySection = true
                 isSonnetSection = false
-            } else if trimmedLine.contains("Current week (Sonnet") || trimmedLine.contains("Current week (Opus") {
-                // Matches "Current week (Sonnet only)" or "Current week (Opus only)"
+                logger.debug("parseUsageOutput: found section 'Current week (all models)'")
+            } else if trimmedLine.contains("Current week (") && !trimmedLine.contains("all models") {
                 isSessionSection = false
                 isWeeklySection = false
                 isSonnetSection = true
+                logger.debug("parseUsageOutput: found section '\(trimmedLine)'")
             }
 
             // Parse percentage from lines like "5% used", "19% used", or "64%used" (no space)
@@ -381,6 +417,9 @@ class UsageMonitor: ObservableObject {
                 let matchedText = String(trimmedLine[match])
                 let percentStr = matchedText.filter { $0.isNumber }
                 if let percentage = Int(percentStr) {
+                    let currentSection = isSessionSection ? "session" : isWeeklySection ? "weekly" : isSonnetSection ? "sonnet" : "none"
+                    logger.info("parseUsageOutput: matched \(percentage)% in section \(currentSection)")
+
                     if isSessionSection {
                         // Daily session is the "Current session"
                         newStats.dailyTokensUsed = percentage
@@ -410,7 +449,8 @@ class UsageMonitor: ObservableObject {
             // Dismiss the settings panel so the session is ready for the next poll
             dismissSettingsPanel()
         } else {
-            logger.warning("Failed to parse usage percentages from output")
+            let lastChars = cleanBuffer.count > 200 ? String(cleanBuffer.suffix(200)) : cleanBuffer
+            logger.warning("parseUsageOutput: validation failed — session=\(newStats.dailyTokensUsed), weekly=\(newStats.weeklyTokensUsed). Last 200 chars: \(lastChars)")
             // Only set failed if we've reached max attempts
             if self.attemptCount >= self.maxAttempts {
                 DispatchQueue.main.async { [weak self] in
@@ -418,6 +458,126 @@ class UsageMonitor: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - Model Detection from Session JSONL
+
+    /// Detect the active Claude model and real CWD by reading the session JSONL file.
+    /// The /usage command only shows rate limit tiers, not the active model.
+    /// The session JSONL contains "model":"claude-opus-4-5-..." and "cwd":"/real/path".
+    /// - Parameters:
+    ///   - workingDirectory: Unused (prompt detection is unreliable); scans all projects instead
+    ///   - onCwdDetected: Called with the real CWD from the session JSONL, if found
+    /// Detect the active model from session JSONL files.
+    /// When `projectPath` is provided, looks in the matching project directory first.
+    /// Falls back to scanning all directories for the most recent session.
+    func detectModelFromSession(projectPath: String? = nil) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+
+            let projectsDir = NSHomeDirectory() + "/.claude/projects"
+            guard FileManager.default.fileExists(atPath: projectsDir) else {
+                logger.debug("No projects directory at \(projectsDir)")
+                return
+            }
+
+            var sessionFile: String?
+
+            // If we have a known project path, look in that specific directory first
+            if let projectPath = projectPath {
+                let encoded = projectPath.replacingOccurrences(of: "/", with: "-")
+                let targetDir = projectsDir + "/" + encoded
+                sessionFile = self.findMostRecentSessionFile(inDirectory: targetDir)
+                if sessionFile != nil {
+                    logger.info("Found session in project-specific dir: \(encoded)")
+                }
+            }
+
+            // Fall back to scanning all directories
+            if sessionFile == nil {
+                sessionFile = self.findMostRecentSessionFileGlobally(in: projectsDir)
+            }
+
+            guard let sessionFile = sessionFile else {
+                logger.debug("No session files found")
+                return
+            }
+            logger.info("Reading session file: \(sessionFile)")
+
+            // Read the last portion of the file
+            guard let fileHandle = FileHandle(forReadingAtPath: sessionFile) else { return }
+            defer { fileHandle.closeFile() }
+
+            let fileSize = fileHandle.seekToEndOfFile()
+            let readSize: UInt64 = min(fileSize, 20000) // Read last 20KB
+            fileHandle.seek(toFileOffset: fileSize - readSize)
+            let data = fileHandle.readData(ofLength: Int(readSize))
+            guard let content = String(data: data, encoding: .utf8) else { return }
+
+            // Extract model: "model":"claude-opus-4-5-20251101"
+            var detectedModel = ""
+            let modelPattern = #""model"\s*:\s*"claude-(\w+)-"#
+            if let regex = try? NSRegularExpression(pattern: modelPattern) {
+                let matches = regex.matches(in: content, range: NSRange(content.startIndex..., in: content))
+                if let lastMatch = matches.last,
+                   let range = Range(lastMatch.range(at: 1), in: content) {
+                    detectedModel = String(content[range]).capitalized // "opus" → "Opus"
+                }
+            }
+
+            logger.info("Session model detected: \(detectedModel)")
+
+            DispatchQueue.main.async { [weak self] in
+                if !detectedModel.isEmpty, self?.modelTier != detectedModel {
+                    logger.info("Setting model tier: \(detectedModel)")
+                    self?.modelTier = detectedModel
+                }
+            }
+        }
+    }
+
+    /// Find the most recently modified .jsonl file in a specific directory
+    private func findMostRecentSessionFile(inDirectory dirPath: String) -> String? {
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: dirPath) else { return nil }
+
+        var newestFile: String?
+        var newestDate: Date = .distantPast
+
+        for file in files where file.hasSuffix(".jsonl") {
+            let filePath = dirPath + "/" + file
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: filePath),
+               let modified = attrs[.modificationDate] as? Date,
+               modified > newestDate {
+                newestDate = modified
+                newestFile = filePath
+            }
+        }
+        return newestFile
+    }
+
+    /// Find the most recently modified .jsonl session file across all project directories
+    private func findMostRecentSessionFileGlobally(in projectsDir: String) -> String? {
+        guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: projectsDir) else { return nil }
+
+        var newestFile: String?
+        var newestDate: Date = .distantPast
+
+        for dir in dirs {
+            let fullPath = projectsDir + "/" + dir
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+
+            if let file = findMostRecentSessionFile(inDirectory: fullPath),
+               let attrs = try? FileManager.default.attributesOfItem(atPath: file),
+               let modified = attrs[.modificationDate] as? Date,
+               modified > newestDate {
+                newestDate = modified
+                newestFile = file
+            }
+        }
+
+        return newestFile
     }
 
     func cleanup() {

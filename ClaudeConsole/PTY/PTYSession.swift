@@ -158,15 +158,21 @@ final class PTYSession {
         stateLock.lock()
         guard case .running(_, let masterFD) = _state else {
             stateLock.unlock()
-            logger.warning("Cannot write: session not running")
+            logger.warning("PTYSession.write: session not running, dropping \(data.count) bytes")
             return -1
         }
         stateLock.unlock()
 
-        return data.withUnsafeBytes { ptr in
+        let result = data.withUnsafeBytes { ptr -> Int in
             guard let baseAddress = ptr.baseAddress else { return -1 }
             return Darwin.write(masterFD, baseAddress, data.count)
         }
+
+        if result != data.count {
+            logger.warning("PTYSession.write: wrote \(result)/\(data.count) bytes")
+        }
+
+        return result
     }
 
     /// Write a string to the PTY
@@ -195,7 +201,11 @@ final class PTYSession {
     /// Clear the output buffer (thread-safe)
     func clearBuffer() {
         bufferQueue.async { [weak self] in
+            let count = self?._outputBuffer.count ?? 0
             self?._outputBuffer = ""
+            if count > 0 {
+                logger.debug("PTYSession: cleared buffer (\(count) chars)")
+            }
         }
     }
 
@@ -318,7 +328,9 @@ final class PTYSession {
 
             // Limit buffer size
             if self._outputBuffer.count > self.maxBufferSize {
+                let beforeCount = self._outputBuffer.count
                 self._outputBuffer = String(self._outputBuffer.suffix(self.maxBufferSize / 2))
+                logger.warning("PTYSession: buffer overflow (\(beforeCount) chars), truncated to \(self._outputBuffer.count)")
             }
 
             // Call raw data handler
@@ -331,6 +343,7 @@ final class PTYSession {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
                 let buffer = self._outputBuffer
+                logger.debug("PTYSession: debounce fired, buffer has \(buffer.count) chars")
 
                 // Call output handler on main thread
                 let outputHandler = self.onOutput
