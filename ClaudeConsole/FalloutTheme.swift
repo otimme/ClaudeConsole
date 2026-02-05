@@ -212,7 +212,7 @@ struct ScanlineOverlay: View {
     let lineSpacing: CGFloat
     let lineOpacity: Double
 
-    init(lineSpacing: CGFloat = 3, lineOpacity: Double = 0.06) {
+    init(lineSpacing: CGFloat = 3, lineOpacity: Double = 0.20) {
         self.lineSpacing = lineSpacing
         self.lineOpacity = lineOpacity
     }
@@ -508,43 +508,59 @@ extension ButtonStyle where Self == FalloutButtonStyle {
 
 struct FalloutStatusBar: View {
     let title: String
-    let showIndicators: Bool
-
-    init(title: String = "VAULT-TEC TERMINAL", showIndicators: Bool = true) {
-        self.title = title
-        self.showIndicators = showIndicators
-    }
+    var modelTier: String = ""
+    var gitBranch: String = ""
+    var gitIsDirty: Bool = false
+    var isGitRepo: Bool = false
+    var isStreaming: Bool = false
 
     var body: some View {
-        HStack {
-            HStack(spacing: 6) {
-                Image(systemName: "gear.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.Fallout.primary)
-                Text(title)
-                    .font(.Fallout.caption)
-                    .foregroundColor(Color.Fallout.primary)
-                    .tracking(1.5)
-            }
-
-            Spacer()
-
+        ZStack {
+            // Clock pinned to center
             Text(Date(), style: .time)
                 .font(.Fallout.caption)
                 .foregroundColor(Color.Fallout.secondary)
 
-            Spacer()
-
-            if showIndicators {
-                HStack(spacing: 12) {
-                    StatusIndicatorDot(label: "SYS", isActive: true)
-                    StatusIndicatorDot(label: "NET", isActive: true)
-                    StatusIndicatorDot(label: "CLI", isActive: true)
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "gear.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.Fallout.primary)
+                    Text(title)
+                        .font(.Fallout.caption)
+                        .foregroundColor(Color.Fallout.primary)
+                        .tracking(1.5)
                 }
+
+                Spacer()
+
+                HStack(spacing: 0) {
+                StreamingPulse(isStreaming: isStreaming)
+
+                if isGitRepo {
+                    Rectangle()
+                        .fill(Color.Fallout.borderDim)
+                        .frame(width: 1, height: 16)
+                        .padding(.horizontal, 10)
+
+                    GitBranchIndicator(
+                        branchName: gitBranch,
+                        isDirty: gitIsDirty,
+                        isGitRepo: isGitRepo
+                    )
+                }
+
+                Rectangle()
+                    .fill(Color.Fallout.borderDim)
+                    .frame(width: 1, height: 16)
+                    .padding(.horizontal, 10)
+
+                ModelBadge(modelTier: modelTier)
+            }
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 4)
+        .padding(.vertical, 7)
         .background(Color.Fallout.backgroundAlt)
         .overlay(
             Rectangle()
@@ -555,21 +571,118 @@ struct FalloutStatusBar: View {
     }
 }
 
-struct StatusIndicatorDot: View {
-    let label: String
-    let isActive: Bool
+// MARK: - Streaming Pulse Indicator
+
+struct StreamingPulse: View {
+    let isStreaming: Bool
+
+    @State private var pulseOpacity: Double = 1.0
+    @State private var isAnimating = false
 
     var body: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(isActive ? Color.Fallout.primary : Color.Fallout.inactive)
+                .fill(isStreaming ? Color.Fallout.primary : Color.Fallout.inactive)
                 .frame(width: 8, height: 8)
-                .shadow(color: isActive ? Color.Fallout.glow.opacity(0.5) : .clear, radius: 4)
+                .opacity(isStreaming ? pulseOpacity : 1.0)
+                .shadow(
+                    color: isStreaming ? Color.Fallout.glow.opacity(0.6) : .clear,
+                    radius: isStreaming ? 6 : 0
+                )
 
-            Text(label)
-                .font(.Fallout.caption)
-                .foregroundColor(isActive ? Color.Fallout.primary : Color.Fallout.tertiary)
+            if isStreaming {
+                Text("NET")
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.primary)
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: isStreaming)
+        .onChange(of: isStreaming) { _, newValue in
+            if newValue {
+                startPulsing()
+            } else {
+                stopPulsing()
+            }
+        }
+    }
+
+    private func startPulsing() {
+        guard !isAnimating else { return }
+        isAnimating = true
+        withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+            pulseOpacity = 0.3
+        }
+    }
+
+    private func stopPulsing() {
+        isAnimating = false
+        withAnimation(.default) {
+            pulseOpacity = 1.0
+        }
+    }
+}
+
+// MARK: - Git Branch Indicator
+
+struct GitBranchIndicator: View {
+    let branchName: String
+    let isDirty: Bool
+    let isGitRepo: Bool
+
+    private var branchColor: SwiftUI.Color {
+        isDirty ? Color.Fallout.warning : Color.Fallout.primary
+    }
+
+    var body: some View {
+        if isGitRepo {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 10))
+                    .foregroundColor(branchColor)
+                Text(branchName)
+                    .font(.Fallout.caption)
+                    .foregroundColor(branchColor)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+    }
+}
+
+// MARK: - Model Badge
+
+struct ModelBadge: View {
+    let modelTier: String
+
+    private var badgeColor: SwiftUI.Color {
+        modelTier.isEmpty ? Color.Fallout.inactive : Color.Fallout.primary
+    }
+
+    private var displayText: String {
+        modelTier.isEmpty ? "---" : modelTier.uppercased()
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(badgeColor)
+                .frame(width: 6, height: 6)
+                .shadow(color: badgeColor.opacity(0.5), radius: 3)
+            Text(displayText)
+                .font(.Fallout.caption)
+                .foregroundColor(badgeColor)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(badgeColor.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(badgeColor.opacity(0.4), lineWidth: 1)
+        )
     }
 }
 
