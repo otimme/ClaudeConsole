@@ -15,8 +15,38 @@ class SpeechRecognitionManager: ObservableObject {
     @Published var isTranscribing = false
     @Published var isDownloadingModel = false
     @Published var downloadProgress: Double = 0.0
+    @Published var isLoadingModel = false
     @Published var isWarmingUp = false
     @Published var currentError: SpeechToTextError?
+
+    private static let modelName = "openai_whisper-small"
+    private static let requiredModelFiles = [
+        "AudioEncoder.mlmodelc",
+        "TextDecoder.mlmodelc",
+        "MelSpectrogram.mlmodelc"
+    ]
+
+    /// Persistent model directory in Application Support
+    private static var persistentModelDirectory: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport
+            .appendingPathComponent("ClaudeConsole", isDirectory: true)
+            .appendingPathComponent("WhisperModels", isDirectory: true)
+    }
+
+    /// Full path to the persistent model folder
+    private static var persistentModelFolder: URL {
+        persistentModelDirectory.appendingPathComponent(modelName, isDirectory: true)
+    }
+
+    /// Check if all required model files exist in the persistent location
+    private static func persistentModelExists() -> Bool {
+        let fm = FileManager.default
+        let folder = persistentModelFolder.path
+        return requiredModelFiles.allSatisfy { file in
+            fm.fileExists(atPath: (folder as NSString).appendingPathComponent(file))
+        }
+    }
 
     init() {
         Task {
@@ -27,26 +57,54 @@ class SpeechRecognitionManager: ObservableObject {
     private func initializeWhisper() async {
         do {
             await MainActor.run {
-                self.isDownloadingModel = true
-                self.downloadProgress = 0.0
                 self.currentError = nil
             }
 
-            // Simulate progress for better UX (WhisperKit doesn't provide download progress)
-            Task {
-                for i in 1...20 {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    await MainActor.run {
-                        self.downloadProgress = Double(i) * 0.05
+            let persistentFolder = Self.persistentModelFolder
+
+            if Self.persistentModelExists() {
+                await MainActor.run {
+                    self.isLoadingModel = true
+                }
+
+                whisperKit = try await WhisperKit(
+                    model: "small",
+                    modelFolder: persistentFolder.path,
+                    tokenizerFolder: Self.persistentModelDirectory
+                )
+
+                await MainActor.run {
+                    self.isLoadingModel = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isDownloadingModel = true
+                    self.downloadProgress = 0.0
+                }
+
+                // Simulate progress for better UX (WhisperKit doesn't provide download progress)
+                Task {
+                    for i in 1...20 {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        await MainActor.run {
+                            self.downloadProgress = Double(i) * 0.05
+                        }
                     }
                 }
-            }
 
-            whisperKit = try await WhisperKit(model: "small")
+                whisperKit = try await WhisperKit(
+                    model: "small",
+                    tokenizerFolder: Self.persistentModelDirectory
+                )
 
-            await MainActor.run {
-                self.isDownloadingModel = false
-                self.downloadProgress = 1.0
+                if let downloadedFolder = whisperKit?.modelFolder {
+                    await copyModelToPersistentStorage(from: downloadedFolder)
+                }
+
+                await MainActor.run {
+                    self.isDownloadingModel = false
+                    self.downloadProgress = 1.0
+                }
             }
 
             await warmUpModel()
@@ -57,8 +115,8 @@ class SpeechRecognitionManager: ObservableObject {
         } catch {
             await MainActor.run {
                 self.isDownloadingModel = false
+                self.isLoadingModel = false
 
-                // Determine error reason based on error details
                 let errorMessage = error.localizedDescription
                 if errorMessage.contains("network") || errorMessage.contains("connection") {
                     self.currentError = .modelDownloadFailed(reason: "Check your internet connection and try again.")
@@ -68,6 +126,29 @@ class SpeechRecognitionManager: ObservableObject {
                     self.currentError = .modelInitializationFailed
                 }
             }
+        }
+    }
+
+    /// Copy downloaded model files to the persistent Application Support location
+    private func copyModelToPersistentStorage(from sourceFolder: URL) async {
+        let fm = FileManager.default
+        let destination = Self.persistentModelFolder
+
+        do {
+            // Create parent directories
+            try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+
+            let contents = try fm.contentsOfDirectory(at: sourceFolder, includingPropertiesForKeys: nil)
+            for item in contents {
+                let destItem = destination.appendingPathComponent(item.lastPathComponent)
+                if fm.fileExists(atPath: destItem.path) {
+                    try fm.removeItem(at: destItem)
+                }
+                try fm.copyItem(at: item, to: destItem)
+            }
+
+        } catch {
+            // Non-fatal: model will still work, just won't be cached for next launch
         }
     }
 

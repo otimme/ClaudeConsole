@@ -12,6 +12,15 @@ private let logger = Logger(subsystem: "com.claudeconsole", category: "App")
 
 // Application delegate to handle termination
 class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        return true
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Disable automatic window restoration to prevent duplicate windows on launch
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         logger.info("Application terminating, cleaning up sessions...")
 

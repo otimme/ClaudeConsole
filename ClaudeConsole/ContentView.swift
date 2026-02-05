@@ -171,6 +171,11 @@ struct ContentView: View {
                         )
                     }
 
+                    // Model loading indicator (center)
+                    if sharedSpeechRecognition.isLoadingModel {
+                        ModelLoadingIndicator()
+                    }
+
                     // Model warmup indicator (center)
                     if sharedSpeechRecognition.isWarmingUp {
                         ModelWarmupIndicator()
@@ -629,6 +634,39 @@ struct ModelWarmupIndicator: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                )
+        )
+        .shadow(radius: 20)
+    }
+}
+
+// Model loading indicator (loading from local cache)
+struct ModelLoadingIndicator: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .scaleEffect(1.2)
+                .progressViewStyle(.circular)
+
+            Text("Loading Whisper Model...")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            Text("Compiling model for your Mac")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.8))
+
+            Text("This may take a few minutes on first load")
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.6))
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.black.opacity(0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.orange.opacity(0.3), lineWidth: 1)
                 )
         )
         .shadow(radius: 20)
