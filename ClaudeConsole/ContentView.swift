@@ -527,18 +527,12 @@ struct ContentView: View {
             return
         }
 
-        // Navigate to project directory
-        let cdCommand = "cd \"\(projectDir)\"\n"
-        if let data = cdCommand.data(using: .utf8) {
+        // Navigate to project directory, clear screen, then launch claude in one command.
+        // The clear wipes the cd + command text so the terminal starts clean like Terminal.app.
+        // Leading space prevents the command from being saved in shell history.
+        let command = " cd \"\(projectDir)\" && clear && claude\n"
+        if let data = command.data(using: .utf8) {
             terminal.send(data: ArraySlice(data))
-        }
-
-        // Wait for cd to complete, then launch claude
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let claudeCommand = "claude\n"
-            if let data = claudeCommand.data(using: .utf8) {
-                terminal.send(data: ArraySlice(data))
-            }
         }
     }
 }

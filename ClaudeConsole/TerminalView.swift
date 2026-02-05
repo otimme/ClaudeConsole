@@ -391,28 +391,45 @@ struct TerminalView: NSViewRepresentable {
     /// Called when Claude Code starts (optional, for window-scoped observers)
     var onClaudeStarted: ((String) -> Void)?
 
-    func makeNSView(context: Context) -> MonitoredLocalProcessTerminalView {
-        // Use a reasonable initial frame instead of .zero to help with coordinate system
-        let initialFrame = NSRect(x: 0, y: 0, width: 800, height: 600)
-        let terminalView = MonitoredLocalProcessTerminalView(frame: initialFrame)
+    /// Horizontal padding (left/right) for terminal content, like macOS Terminal.app
+    private static let horizontalPadding: CGFloat = 10
+
+    func makeNSView(context: Context) -> NSView {
+        let containerFrame = NSRect(x: 0, y: 0, width: 800, height: 600)
+
+        // Container view with matching background color for the padding area
+        let container = NSView(frame: containerFrame)
+        container.wantsLayer = true
+        let falloutBackground = NSColor(red: 10/255, green: 15/255, blue: 8/255, alpha: 1.0)
+        container.layer?.backgroundColor = falloutBackground.cgColor
+
+        // Terminal view inset within the container
+        let terminalView = MonitoredLocalProcessTerminalView(frame: NSRect(
+            x: Self.horizontalPadding, y: 0,
+            width: containerFrame.width - Self.horizontalPadding * 2,
+            height: containerFrame.height
+        ))
 
         // Configure terminal appearance - Fallout Pip-Boy style
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
         // Set terminal colors - Fallout phosphor green on dark background
-        // Primary green: #14FF00 (20, 255, 0)
-        // Background: #0A0F08 (10, 15, 8)
         let falloutGreen = NSColor(red: 20/255, green: 255/255, blue: 0/255, alpha: 1.0)
-        let falloutBackground = NSColor(red: 10/255, green: 15/255, blue: 8/255, alpha: 1.0)
         terminalView.nativeForegroundColor = falloutGreen
         terminalView.nativeBackgroundColor = falloutBackground
 
         // Set cursor color to match theme
         terminalView.caretColor = falloutGreen
 
-        // Ensure proper autoresizing behavior
-        terminalView.autoresizingMask = [.width, .height]
+        // Use Auto Layout to pin terminal inside container with horizontal padding
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(terminalView)
+        NSLayoutConstraint.activate([
+            terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Self.horizontalPadding),
+            terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Self.horizontalPadding),
+            terminalView.topAnchor.constraint(equalTo: container.topAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
 
         // Wire up callbacks for multi-instance support
         terminalView.onDataReceived = onOutput
@@ -439,28 +456,33 @@ struct TerminalView: NSViewRepresentable {
             )
         }
 
-        return terminalView
+        return container
     }
 
-    func updateNSView(_ nsView: MonitoredLocalProcessTerminalView, context: Context) {
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Find the terminal view inside the container
+        guard let terminalView = nsView.subviews.first(where: { $0 is MonitoredLocalProcessTerminalView }) as? MonitoredLocalProcessTerminalView else { return }
+
         // Update callbacks if they've changed (SwiftUI may recreate the struct with new closures)
-        nsView.onDataReceived = onOutput
-        nsView.onClaudeStarted = onClaudeStarted
+        terminalView.onDataReceived = onOutput
+        terminalView.onClaudeStarted = onClaudeStarted
 
         // Update layout when SwiftUI view geometry changes
         // This ensures the terminal's coordinate system stays in sync
         DispatchQueue.main.async {
-            nsView.needsLayout = true
-            nsView.layoutSubtreeIfNeeded()
+            terminalView.needsLayout = true
+            terminalView.layoutSubtreeIfNeeded()
         }
     }
 
-    static func dismantleNSView(_ nsView: MonitoredLocalProcessTerminalView, coordinator: ()) {
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        // Find the terminal view inside the container
+        guard let terminalView = nsView.subviews.first(where: { $0 is MonitoredLocalProcessTerminalView }) as? MonitoredLocalProcessTerminalView else { return }
+
         // Send exit command to Claude if running (non-blocking)
-        // Note: This may not work if terminal is running something else
         let exitCommand = "/exit \r"
         if let data = exitCommand.data(using: .utf8) {
-            nsView.send(data: ArraySlice(data))
+            terminalView.send(data: ArraySlice(data))
         }
         // Don't block - ProcessTracker will handle cleanup if needed
     }
