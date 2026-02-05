@@ -104,9 +104,17 @@ Free space: 131k
 4. `SpeechRecognitionManager` transcribes audio using WhisperKit (local processing)
 5. Transcribed text is sent to terminal via `terminalController.send()`
 
-**Model:** Uses WhisperKit "base" model by default (~150MB, downloaded on first run). Excellent accuracy with programming terminology (async/await, React hooks, kubectl commands, etc.).
+**Model:** Uses WhisperKit "small" model (~464MB). Excellent accuracy with programming terminology (async/await, React hooks, kubectl commands, etc.).
 
-**Visual Feedback:** Red dot overlay shows "Recording...", spinner shows "Transcribing..."
+**Model Storage:** Models are stored persistently in `~/Library/Application Support/ClaudeConsole/WhisperModels/`:
+- `openai_whisper-small/` — CoreML model files (`.mlmodelc` bundles)
+- `models/openai/whisper-small/` — Tokenizer files (`tokenizer.json`, etc.)
+- On first launch: downloads model from HuggingFace Hub, copies to persistent location
+- On subsequent launches: loads directly from local storage, no network required
+- CoreML device specialization is cached by macOS based on the stable file path
+- Users can manually place model files in the persistent folder for instant first-launch use
+
+**Visual Feedback:** Red dot overlay shows "Recording...", spinner shows "Transcribing...", loading indicator shown during model compilation.
 
 See `docs/guides/SPEECH_TO_TEXT_SETUP.md` for detailed setup instructions.
 
@@ -230,4 +238,5 @@ See `docs/implementation/RADIAL_MENU_IMPLEMENTATION_PLAN.md` for detailed implem
 - PATH environment is captured from login shell for spawned processes
 - Output buffers limited to prevent memory growth (5000 chars for usage, managed by timer for context)
 - Visual terminal and background session are completely separate processes
-- WhisperKit initializes asynchronously on app launch, ~5-10 seconds for first-time model download
+- WhisperKit models stored in `~/Library/Application Support/ClaudeConsole/WhisperModels/` for persistence across launches
+- First launch downloads model and compiles for Neural Engine; subsequent launches load from cache with no network
