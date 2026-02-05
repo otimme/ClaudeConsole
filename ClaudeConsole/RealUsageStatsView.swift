@@ -45,9 +45,9 @@ struct RealUsageStatsView: View {
                 .fill(Color.Fallout.borderDim)
                 .frame(width: 1, height: 30)
 
-            // Weekly Sonnet Usage
+            // Weekly model-specific usage (Opus/Sonnet/Haiku)
             CompactUsageStatPanel(
-                title: "SONNET",
+                title: usageMonitor.modelTier.isEmpty ? "MODEL" : usageMonitor.modelTier.uppercased(),
                 percentage: usageMonitor.usageStats.sonnetTokensUsed
             )
 
