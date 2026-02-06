@@ -607,110 +607,199 @@ struct PS4BatteryIndicator: View {
     }
 }
 
+// MARK: - Pip-Boy Spinner (replaces system ProgressView)
+
+struct PipBoySpinner: View {
+    let segmentCount: Int
+    let size: CGFloat
+
+    @State private var rotation: Double = 0
+    @State private var glowPulse: Double = 0.5
+
+    init(segmentCount: Int = 8, size: CGFloat = 40) {
+        self.segmentCount = segmentCount
+        self.size = size
+    }
+
+    var body: some View {
+        ZStack {
+            // Outer glow ring
+            Circle()
+                .stroke(Color.Fallout.primary.opacity(0.15 * glowPulse), lineWidth: size * 0.08)
+                .frame(width: size * 1.2, height: size * 1.2)
+
+            // Segmented spinner
+            ForEach(0..<segmentCount, id: \.self) { index in
+                let segmentAngle = 360.0 / Double(segmentCount)
+                let opacity = Double(index + 1) / Double(segmentCount)
+
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.Fallout.primary.opacity(opacity))
+                    .frame(width: size * 0.12, height: size * 0.32)
+                    .offset(y: -size * 0.34)
+                    .rotationEffect(.degrees(segmentAngle * Double(index)))
+                    .shadow(color: Color.Fallout.glow.opacity(opacity * 0.6), radius: 2)
+            }
+            .rotationEffect(.degrees(rotation))
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                glowPulse = 1.0
+            }
+        }
+    }
+}
+
 // Model download indicator (center of terminal)
 struct ModelDownloadIndicator: View {
     let progress: Double
 
     var body: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .scaleEffect(1.2)
-                .progressViewStyle(.circular)
+        VStack(spacing: 16) {
+            PipBoySpinner(size: 44)
 
-            Text("Downloading Whisper Model...")
-                .font(.headline)
-                .foregroundColor(.white)
+            Text("DOWNLOADING MODEL")
+                .font(.Fallout.heading)
+                .foregroundColor(Color.Fallout.primary)
+                .tracking(2)
+                .falloutGlow(radius: 4)
 
             if progress > 0 {
-                ProgressView(value: progress, total: 1.0)
-                    .frame(width: 200)
-                    .tint(.blue)
-
-                Text("\(Int(progress * 100))%")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.8))
+                FalloutProgressBar(
+                    value: progress,
+                    segments: 20,
+                    showPercentage: true,
+                    style: .normal
+                )
+                .frame(width: 220)
             }
 
-            Text("~500MB • First run only")
-                .font(.caption2)
-                .foregroundColor(.white.opacity(0.6))
+            FalloutDivider()
+                .frame(width: 160)
+
+            Text("~500MB  //  FIRST RUN ONLY")
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.tertiary)
+                .tracking(1)
         }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.black.opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
-                )
+        .padding(32)
+        .background(Color.Fallout.background.opacity(0.95))
+        .overlay(
+            BeveledRectangle(cornerSize: 12)
+                .stroke(Color.Fallout.primary, lineWidth: 2)
         )
-        .shadow(radius: 20)
+        .clipShape(BeveledRectangle(cornerSize: 12))
+        .shadow(color: Color.Fallout.glow.opacity(0.3), radius: 20)
     }
 }
 
 // Model warmup indicator
 struct ModelWarmupIndicator: View {
+    @State private var dotCount = 0
+    @State private var timer: Timer?
+
+    private var dots: String {
+        String(repeating: ".", count: dotCount)
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .scaleEffect(1.2)
-                .progressViewStyle(.circular)
+        VStack(spacing: 16) {
+            PipBoySpinner(segmentCount: 12, size: 44)
 
-            Text("Optimizing for Neural Engine...")
-                .font(.headline)
-                .foregroundColor(.white)
+            Text("NEURAL ENGINE INIT")
+                .font(.Fallout.heading)
+                .foregroundColor(Color.Fallout.primary)
+                .tracking(2)
+                .falloutGlow(radius: 4)
 
-            Text("Compiling model for your Mac")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+            Text("COMPILING MODEL\(dots)")
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.secondary)
+                .tracking(1)
+                .frame(width: 180, alignment: .leading)
 
-            Text("~10 seconds • First run only")
-                .font(.caption2)
-                .foregroundColor(.white.opacity(0.6))
+            FalloutDivider()
+                .frame(width: 160)
+
+            Text("~10 SEC  //  FIRST RUN ONLY")
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.tertiary)
+                .tracking(1)
         }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.black.opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.green.opacity(0.3), lineWidth: 1)
-                )
+        .padding(32)
+        .background(Color.Fallout.background.opacity(0.95))
+        .overlay(
+            BeveledRectangle(cornerSize: 12)
+                .stroke(Color.Fallout.primary, lineWidth: 2)
         )
-        .shadow(radius: 20)
+        .clipShape(BeveledRectangle(cornerSize: 12))
+        .shadow(color: Color.Fallout.glow.opacity(0.3), radius: 20)
+        .onAppear {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+                dotCount = (dotCount % 3) + 1
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 }
 
 // Model loading indicator (loading from local cache)
 struct ModelLoadingIndicator: View {
+    @State private var dotCount = 0
+    @State private var timer: Timer?
+
+    private var dots: String {
+        String(repeating: ".", count: dotCount)
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .scaleEffect(1.2)
-                .progressViewStyle(.circular)
+        VStack(spacing: 16) {
+            PipBoySpinner(size: 44)
 
-            Text("Loading Whisper Model...")
-                .font(.headline)
-                .foregroundColor(.white)
+            Text("LOADING MODEL")
+                .font(.Fallout.heading)
+                .foregroundColor(Color.Fallout.primary)
+                .tracking(2)
+                .falloutGlow(radius: 4)
 
-            Text("Compiling model for your Mac")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+            Text("COMPILING FOR YOUR MAC\(dots)")
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.secondary)
+                .tracking(1)
+                .frame(width: 220, alignment: .leading)
 
-            Text("This may take a few minutes on first load")
-                .font(.caption2)
-                .foregroundColor(.white.opacity(0.6))
+            FalloutDivider()
+                .frame(width: 160)
+
+            Text("MAY TAKE A FEW MINUTES ON FIRST LOAD")
+                .font(.Fallout.caption)
+                .foregroundColor(Color.Fallout.tertiary)
+                .tracking(1)
         }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.black.opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.orange.opacity(0.3), lineWidth: 1)
-                )
+        .padding(32)
+        .background(Color.Fallout.background.opacity(0.95))
+        .overlay(
+            BeveledRectangle(cornerSize: 12)
+                .stroke(Color.Fallout.primary, lineWidth: 2)
         )
-        .shadow(radius: 20)
+        .clipShape(BeveledRectangle(cornerSize: 12))
+        .shadow(color: Color.Fallout.glow.opacity(0.3), radius: 20)
+        .onAppear {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+                dotCount = (dotCount % 3) + 1
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 }
 
