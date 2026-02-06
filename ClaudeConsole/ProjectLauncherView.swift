@@ -11,7 +11,6 @@ import Combine
 
 struct ProjectLauncherView: View {
     @StateObject private var controller = ProjectLauncherController()
-    @Environment(\.dismiss) private var dismiss
     @State private var showSettings = false
     @ObservedObject var ps4Monitor: PS4ControllerMonitor
     @State private var lastAnalogValue: Float = 0
@@ -21,6 +20,7 @@ struct ProjectLauncherView: View {
 
     // CRT power-on animation
     @State private var crtPowerOn = false
+    @State private var escapeMonitor: Any?
 
     // Title glow pulse
     @State private var titleGlowRadius: CGFloat = 2
@@ -65,6 +65,7 @@ struct ProjectLauncherView: View {
                 VignetteOverlay(intensity: 0.4)
             }
             .allowsHitTesting(false)
+
         }
         .frame(width: 700, height: 600)
         // CRT power-on animation
@@ -82,7 +83,6 @@ struct ProjectLauncherView: View {
             if let project = controller.selectedProject {
                 controller.selectProject(project)
                 onProjectSelected(project)
-                dismiss()
                 return .handled
             }
             return .ignored
@@ -109,9 +109,22 @@ struct ProjectLauncherView: View {
             withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
                 titleGlowRadius = 5
             }
+            // Monitor escape key
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 { // Escape key
+                    controller.skipLauncher()
+                    onSkip()
+                    return nil // Consume the event
+                }
+                return event
+            }
         }
         .onDisappear {
             cleanupPS4Controller()
+            if let monitor = escapeMonitor {
+                NSEvent.removeMonitor(monitor)
+                escapeMonitor = nil
+            }
         }
     }
 
@@ -264,7 +277,6 @@ struct ProjectLauncherView: View {
                                     .onTapGesture {
                                         controller.selectProject(project)
                                         onProjectSelected(project)
-                                        dismiss()
                                     }
                                 }
                             }
@@ -314,10 +326,8 @@ struct ProjectLauncherView: View {
             Button("SKIP") {
                 controller.skipLauncher()
                 onSkip()
-                dismiss()
             }
             .buttonStyle(.fallout)
-            .keyboardShortcut(.escape, modifiers: [])
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -433,7 +443,6 @@ struct ProjectLauncherView: View {
         if let project = controller.selectedProject {
             controller.selectProject(project)
             onProjectSelected(project)
-            dismiss()
         }
     }
 }

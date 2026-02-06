@@ -360,17 +360,27 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .frame(minWidth: showPS4Controller ? 1000 : 800, minHeight: 600)
         .navigationTitle(windowTitle)
-        .sheet(isPresented: $showProjectLauncher) {
-            ProjectLauncherView(
-                ps4Monitor: sharedMonitor,
-                onProjectSelected: { project in
-                    selectedProject = project
-                    launchProject(project)
-                },
-                onSkip: {
-                    selectedProject = nil
+        .overlay {
+            if showProjectLauncher {
+                ZStack {
+                    Color.black.opacity(0.6)
+                        .ignoresSafeArea()
+
+                    ProjectLauncherView(
+                        ps4Monitor: sharedMonitor,
+                        onProjectSelected: { project in
+                            selectedProject = project
+                            launchProject(project)
+                            showProjectLauncher = false
+                        },
+                        onSkip: {
+                            selectedProject = nil
+                            showProjectLauncher = false
+                        }
+                    )
                 }
-            )
+                .transition(.opacity)
+            }
         }
         .onAppear {
             // Show project launcher on first launch if enabled
