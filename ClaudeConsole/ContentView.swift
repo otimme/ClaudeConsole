@@ -202,21 +202,13 @@ struct ContentView: View {
                         )
                         .frame(minWidth: 600, minHeight: 400)
 
-                    // Model download indicator (center)
-                    if sharedSpeechRecognition.isDownloadingModel {
-                        ModelDownloadIndicator(
-                            progress: sharedSpeechRecognition.downloadProgress
+                    // Model preparation indicator (center)
+                    if let step = sharedSpeechRecognition.preparationStep {
+                        ModelPreparationIndicator(
+                            currentStep: step,
+                            downloadProgress: sharedSpeechRecognition.downloadProgress,
+                            showDownloadStep: sharedSpeechRecognition.needsDownload
                         )
-                    }
-
-                    // Model loading indicator (center)
-                    if sharedSpeechRecognition.isLoadingModel {
-                        ModelLoadingIndicator()
-                    }
-
-                    // Model warmup indicator (center)
-                    if sharedSpeechRecognition.isWarmingUp {
-                        ModelWarmupIndicator()
                     }
 
                     // Error banner (top)
@@ -665,80 +657,58 @@ struct PipBoySpinner: View {
 }
 
 // Model download indicator (center of terminal)
-struct ModelDownloadIndicator: View {
-    let progress: Double
+// Unified model preparation indicator with step-by-step progress
+struct ModelPreparationIndicator: View {
+    let currentStep: ModelPreparationStep
+    let downloadProgress: Double
+    let showDownloadStep: Bool
+
+    @State private var dotCount = 0
+    @State private var timer: Timer?
+
+    private var paddedDots: String {
+        let d = String(repeating: ".", count: dotCount)
+        return d.padding(toLength: 3, withPad: " ", startingAt: 0)
+    }
+
+    private var visibleSteps: [ModelPreparationStep] {
+        if showDownloadStep {
+            return ModelPreparationStep.allCases
+        } else {
+            return ModelPreparationStep.allCases.filter { $0 != .downloading }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 16) {
             PipBoySpinner(size: 44)
 
-            Text("DOWNLOADING MODEL")
+            Text("PREPARING WHISPER MODEL")
                 .font(.Fallout.heading)
                 .foregroundColor(Color.Fallout.primary)
                 .tracking(2)
                 .falloutGlow(radius: 4)
 
-            if progress > 0 {
+            FalloutDivider()
+                .frame(width: 300)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(visibleSteps, id: \.rawValue) { step in
+                    stepRow(step)
+                }
+            }
+            .frame(width: 320, alignment: .leading)
+
+            // Show download progress bar when downloading
+            if currentStep == .downloading && downloadProgress > 0 {
                 FalloutProgressBar(
-                    value: progress,
+                    value: downloadProgress,
                     segments: 20,
                     showPercentage: true,
                     style: .normal
                 )
-                .frame(width: 220)
+                .frame(width: 300)
             }
-
-            FalloutDivider()
-                .frame(width: 160)
-
-            Text("~500MB  //  FIRST RUN ONLY")
-                .font(.Fallout.caption)
-                .foregroundColor(Color.Fallout.tertiary)
-                .tracking(1)
-        }
-        .padding(32)
-        .background(Color.Fallout.background.opacity(0.95))
-        .overlay(
-            BeveledRectangle(cornerSize: 12)
-                .stroke(Color.Fallout.primary, lineWidth: 2)
-        )
-        .clipShape(BeveledRectangle(cornerSize: 12))
-        .shadow(color: Color.Fallout.glow.opacity(0.3), radius: 20)
-    }
-}
-
-// Model warmup indicator
-struct ModelWarmupIndicator: View {
-    @State private var dotCount = 0
-    @State private var timer: Timer?
-
-    private var dots: String {
-        String(repeating: ".", count: dotCount)
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            PipBoySpinner(segmentCount: 12, size: 44)
-
-            Text("NEURAL ENGINE INIT")
-                .font(.Fallout.heading)
-                .foregroundColor(Color.Fallout.primary)
-                .tracking(2)
-                .falloutGlow(radius: 4)
-
-            Text("COMPILING MODEL\(dots)")
-                .font(.Fallout.caption)
-                .foregroundColor(Color.Fallout.secondary)
-                .tracking(1)
-                .frame(width: 180, alignment: .leading)
-
-            FalloutDivider()
-                .frame(width: 160)
-
-            Text("~10 SEC  //  FIRST RUN ONLY")
-                .font(.Fallout.caption)
-                .foregroundColor(Color.Fallout.tertiary)
-                .tracking(1)
         }
         .padding(32)
         .background(Color.Fallout.background.opacity(0.95))
@@ -758,58 +728,47 @@ struct ModelWarmupIndicator: View {
             timer = nil
         }
     }
-}
 
-// Model loading indicator (loading from local cache)
-struct ModelLoadingIndicator: View {
-    @State private var dotCount = 0
-    @State private var timer: Timer?
+    @ViewBuilder
+    private func stepRow(_ step: ModelPreparationStep) -> some View {
+        let isActive = step == currentStep
+        let isComplete = step.rawValue < currentStep.rawValue
+        let isPending = step.rawValue > currentStep.rawValue
 
-    private var dots: String {
-        String(repeating: ".", count: dotCount)
-    }
+        HStack(spacing: 10) {
+            // Status indicator
+            if isComplete {
+                Text("[OK]")
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.primary)
+                    .frame(width: 50, alignment: .leading)
+            } else if isActive {
+                Text(">>\(paddedDots)")
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.primary)
+                    .frame(width: 50, alignment: .leading)
+            } else {
+                Text("[  ]")
+                    .font(.Fallout.caption)
+                    .foregroundColor(Color.Fallout.tertiary.opacity(0.5))
+                    .frame(width: 50, alignment: .leading)
+            }
 
-    var body: some View {
-        VStack(spacing: 16) {
-            PipBoySpinner(size: 44)
+            // Step info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.label)
+                    .font(.Fallout.caption)
+                    .foregroundColor(isActive ? Color.Fallout.primary : isComplete ? Color.Fallout.secondary : Color.Fallout.tertiary.opacity(0.5))
+                    .tracking(1)
+                    .falloutGlow(radius: isActive ? 3 : 0)
 
-            Text("LOADING MODEL")
-                .font(.Fallout.heading)
-                .foregroundColor(Color.Fallout.primary)
-                .tracking(2)
-                .falloutGlow(radius: 4)
-
-            Text("COMPILING FOR YOUR MAC\(dots)")
-                .font(.Fallout.caption)
-                .foregroundColor(Color.Fallout.secondary)
-                .tracking(1)
-                .frame(width: 220, alignment: .leading)
-
-            FalloutDivider()
-                .frame(width: 160)
-
-            Text("MAY TAKE A FEW MINUTES ON FIRST LOAD")
-                .font(.Fallout.caption)
-                .foregroundColor(Color.Fallout.tertiary)
-                .tracking(1)
-        }
-        .padding(32)
-        .background(Color.Fallout.background.opacity(0.95))
-        .overlay(
-            BeveledRectangle(cornerSize: 12)
-                .stroke(Color.Fallout.primary, lineWidth: 2)
-        )
-        .clipShape(BeveledRectangle(cornerSize: 12))
-        .shadow(color: Color.Fallout.glow.opacity(0.3), radius: 20)
-        .onAppear {
-            timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-                dotCount = (dotCount % 3) + 1
+                Text(step.detail)
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundColor(isActive ? Color.Fallout.secondary : isComplete ? Color.Fallout.tertiary : Color.Fallout.tertiary.opacity(0.3))
+                    .tracking(0.5)
             }
         }
-        .onDisappear {
-            timer?.invalidate()
-            timer = nil
-        }
+        .opacity(isPending ? 0.5 : 1.0)
     }
 }
 

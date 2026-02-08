@@ -9,17 +9,55 @@ import Foundation
 import AVFoundation
 import WhisperKit
 
+enum ModelPreparationStep: Int, CaseIterable {
+    case downloading = 0
+    case loading = 1
+    case optimizing = 2
+    case warmingUp = 3
+
+    var label: String {
+        switch self {
+        case .downloading: return "DOWNLOADING MODEL"
+        case .loading: return "LOADING MODEL FILES"
+        case .optimizing: return "OPTIMIZING FOR HARDWARE"
+        case .warmingUp: return "WARMING UP ENGINE"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .downloading: return "~500MB FROM HUGGINGFACE"
+        case .loading: return "READING COREML BUNDLES"
+        case .optimizing: return "NEURAL ENGINE + GPU SPECIALIZATION"
+        case .warmingUp: return "RUNNING FIRST INFERENCE"
+        }
+    }
+}
+
 class SpeechRecognitionManager: ObservableObject {
     private var whisperKit: WhisperKit?
     @Published var isInitialized = false
     @Published var isTranscribing = false
-    @Published var isDownloadingModel = false
+    @Published var preparationStep: ModelPreparationStep? = nil
     @Published var downloadProgress: Double = 0.0
-    @Published var isLoadingModel = false
-    @Published var isWarmingUp = false
     @Published var currentError: SpeechToTextError?
 
     private static let modelName = "openai_whisper-small"
+
+    // Track macOS build version to detect OS updates that invalidate CoreML specialization cache
+    private static var cachedOSBuild: String? {
+        get { UserDefaults.standard.string(forKey: "whisper_model_os_build") }
+        set { UserDefaults.standard.set(newValue, forKey: "whisper_model_os_build") }
+    }
+
+    private static var currentOSBuild: String {
+        var size = 0
+        sysctlbyname("kern.osversion", nil, &size, nil, 0)
+        var version = [CChar](repeating: 0, count: size)
+        sysctlbyname("kern.osversion", &version, &size, nil, 0)
+        return String(cString: version)
+    }
+
     private static let requiredModelFiles = [
         "AudioEncoder.mlmodelc",
         "TextDecoder.mlmodelc",
@@ -34,9 +72,11 @@ class SpeechRecognitionManager: ObservableObject {
             .appendingPathComponent("WhisperModels", isDirectory: true)
     }
 
-    /// Full path to the persistent model folder
+    /// Full path to the persistent model folder (standardized for stable CoreML cache key)
     private static var persistentModelFolder: URL {
-        persistentModelDirectory.appendingPathComponent(modelName, isDirectory: true)
+        persistentModelDirectory
+            .appendingPathComponent(modelName, isDirectory: true)
+            .standardizedFileURL
     }
 
     /// Check if all required model files exist in the persistent location
@@ -54,6 +94,11 @@ class SpeechRecognitionManager: ObservableObject {
         }
     }
 
+    /// Whether the download flow is needed (no cached model)
+    var needsDownload: Bool {
+        !Self.persistentModelExists()
+    }
+
     private func initializeWhisper() async {
         do {
             await MainActor.run {
@@ -63,8 +108,16 @@ class SpeechRecognitionManager: ObservableObject {
             let persistentFolder = Self.persistentModelFolder
 
             if Self.persistentModelExists() {
+                // Cached path: load → optimize → warmup
                 await MainActor.run {
-                    self.isLoadingModel = true
+                    self.preparationStep = .loading
+                }
+
+                let startTime = CFAbsoluteTimeGetCurrent()
+
+                // Loading and optimization happen together in WhisperKit init
+                await MainActor.run {
+                    self.preparationStep = .optimizing
                 }
 
                 whisperKit = try await WhisperKit(
@@ -72,13 +125,19 @@ class SpeechRecognitionManager: ObservableObject {
                     modelFolder: persistentFolder.path,
                     tokenizerFolder: Self.persistentModelDirectory
                 )
+                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
-                await MainActor.run {
-                    self.isLoadingModel = false
+                if elapsed > 5.0 {
+                    print("[WhisperKit] Model required device specialization (\(String(format: "%.1f", elapsed))s)")
+                } else {
+                    print("[WhisperKit] Model loaded from cache (\(String(format: "%.1f", elapsed))s)")
                 }
+
+                Self.cachedOSBuild = Self.currentOSBuild
             } else {
+                // Download path: WhisperKit handles download + load + optimize in one call
                 await MainActor.run {
-                    self.isDownloadingModel = true
+                    self.preparationStep = .downloading
                     self.downloadProgress = 0.0
                 }
 
@@ -101,21 +160,18 @@ class SpeechRecognitionManager: ObservableObject {
                     await copyModelToPersistentStorage(from: downloadedFolder)
                 }
 
-                await MainActor.run {
-                    self.isDownloadingModel = false
-                    self.downloadProgress = 1.0
-                }
+                Self.cachedOSBuild = Self.currentOSBuild
             }
 
             await warmUpModel()
 
             await MainActor.run {
+                self.preparationStep = nil
                 self.isInitialized = true
             }
         } catch {
             await MainActor.run {
-                self.isDownloadingModel = false
-                self.isLoadingModel = false
+                self.preparationStep = nil
 
                 let errorMessage = error.localizedDescription
                 if errorMessage.contains("network") || errorMessage.contains("connection") {
@@ -138,9 +194,17 @@ class SpeechRecognitionManager: ObservableObject {
             // Create parent directories
             try fm.createDirectory(at: destination, withIntermediateDirectories: true)
 
-            let contents = try fm.contentsOfDirectory(at: sourceFolder, includingPropertiesForKeys: nil)
+            let contents = try fm.contentsOfDirectory(at: sourceFolder, includingPropertiesForKeys: [.fileSizeKey])
             for item in contents {
                 let destItem = destination.appendingPathComponent(item.lastPathComponent)
+                // Skip files that already exist with the same size to preserve timestamps
+                // (changed timestamps invalidate CoreML's device specialization cache)
+                if fm.fileExists(atPath: destItem.path),
+                   let srcSize = try? fm.attributesOfItem(atPath: item.path)[.size] as? Int,
+                   let dstSize = try? fm.attributesOfItem(atPath: destItem.path)[.size] as? Int,
+                   srcSize == dstSize {
+                    continue
+                }
                 if fm.fileExists(atPath: destItem.path) {
                     try fm.removeItem(at: destItem)
                 }
@@ -161,7 +225,7 @@ class SpeechRecognitionManager: ObservableObject {
         guard let whisper = whisperKit else { return }
 
         await MainActor.run {
-            self.isWarmingUp = true
+            self.preparationStep = .warmingUp
         }
 
         do {
@@ -199,9 +263,6 @@ class SpeechRecognitionManager: ObservableObject {
             // Warmup failed, but this is non-critical
         }
 
-        await MainActor.run {
-            self.isWarmingUp = false
-        }
     }
 
     func transcribe(audioURL: URL, language: SpeechLanguage = .english) async -> String? {
