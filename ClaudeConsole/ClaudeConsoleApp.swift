@@ -17,8 +17,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Disable automatic window restoration to prevent duplicate windows on launch
-        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+        // Close any extra windows restored from saved state, keeping only one
+        DispatchQueue.main.async {
+            let windows = NSApplication.shared.windows.filter { $0.isVisible }
+            if windows.count > 1 {
+                for window in windows.dropFirst() {
+                    window.close()
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -45,6 +52,10 @@ struct ClaudeConsoleApp: App {
     private let sharedResources = SharedResourceManager.shared
 
     init() {
+        // Disable window state restoration BEFORE WindowGroup evaluates body
+        // This must happen here (not in applicationDidFinishLaunching) to prevent
+        // SwiftUI from restoring previously saved windows on launch
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
         logger.info("ClaudeConsoleApp initializing with SharedResourceManager")
     }
 

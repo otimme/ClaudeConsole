@@ -21,6 +21,7 @@ struct ProjectLauncherView: View {
     // CRT power-on animation
     @State private var crtPowerOn = false
     @State private var escapeMonitor: Any?
+    @FocusState private var isSearchFocused: Bool
 
     // Title glow pulse
     @State private var titleGlowRadius: CGFloat = 2
@@ -105,6 +106,10 @@ struct ProjectLauncherView: View {
             withAnimation(.easeOut(duration: 0.3)) {
                 crtPowerOn = true
             }
+            // Focus the search field after CRT animation completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                isSearchFocused = true
+            }
             // Start title glow pulse
             withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
                 titleGlowRadius = 5
@@ -175,6 +180,7 @@ struct ProjectLauncherView: View {
                 .font(.Fallout.body)
                 .foregroundColor(Color.Fallout.primary)
                 .tint(Color.Fallout.primary)
+                .focused($isSearchFocused)
 
             if !controller.searchText.isEmpty {
                 Button(action: { controller.searchText = "" }) {
