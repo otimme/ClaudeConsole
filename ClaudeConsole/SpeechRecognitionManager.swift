@@ -26,7 +26,7 @@ enum ModelPreparationStep: Int, CaseIterable {
 
     var detail: String {
         switch self {
-        case .downloading: return "~500MB FROM HUGGINGFACE"
+        case .downloading: return "~1.5GB FROM HUGGINGFACE"
         case .loading: return "READING COREML BUNDLES"
         case .optimizing: return "NEURAL ENGINE + GPU SPECIALIZATION"
         case .warmingUp: return "RUNNING FIRST INFERENCE"
@@ -42,7 +42,7 @@ class SpeechRecognitionManager: ObservableObject {
     @Published var downloadProgress: Double = 0.0
     @Published var currentError: SpeechToTextError?
 
-    private static let modelName = "openai_whisper-small"
+    private static let modelName = "openai_whisper-large-v3-turbo"
 
     // Track macOS build version to detect OS updates that invalidate CoreML specialization cache
     private static var cachedOSBuild: String? {
@@ -177,7 +177,7 @@ class SpeechRecognitionManager: ObservableObject {
                 if errorMessage.contains("network") || errorMessage.contains("connection") {
                     self.currentError = .modelDownloadFailed(reason: "Check your internet connection and try again.")
                 } else if errorMessage.contains("space") || errorMessage.contains("disk") {
-                    self.currentError = .modelDownloadFailed(reason: "Insufficient disk space. The model requires ~500MB.")
+                    self.currentError = .modelDownloadFailed(reason: "Insufficient disk space. The model requires ~1.5GB.")
                 } else {
                     self.currentError = .modelInitializationFailed
                 }
