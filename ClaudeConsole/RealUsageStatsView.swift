@@ -28,7 +28,8 @@ struct RealUsageStatsView: View {
             // Current Session (Daily)
             CompactUsageStatPanel(
                 title: "SESSION",
-                percentage: usageMonitor.usageStats.dailyTokensUsed
+                percentage: usageMonitor.usageStats.dailyTokensUsed,
+                resetTime: usageMonitor.usageStats.sessionResetTime
             )
 
             Rectangle()
@@ -38,7 +39,8 @@ struct RealUsageStatsView: View {
             // Weekly Usage (All Models)
             CompactUsageStatPanel(
                 title: "WEEKLY",
-                percentage: usageMonitor.usageStats.weeklyTokensUsed
+                percentage: usageMonitor.usageStats.weeklyTokensUsed,
+                resetTime: usageMonitor.usageStats.weeklyResetTime
             )
 
             Rectangle()
@@ -47,8 +49,9 @@ struct RealUsageStatsView: View {
 
             // Weekly model-specific usage (Opus/Sonnet/Haiku)
             CompactUsageStatPanel(
-                title: usageMonitor.modelTier.isEmpty ? "MODEL" : usageMonitor.modelTier.uppercased(),
-                percentage: usageMonitor.usageStats.sonnetTokensUsed
+                title: usageMonitor.usageModelTier.isEmpty ? "MODEL" : usageMonitor.usageModelTier.uppercased(),
+                percentage: usageMonitor.usageStats.sonnetTokensUsed,
+                resetTime: usageMonitor.usageStats.modelResetTime
             )
 
             Spacer()
@@ -88,6 +91,7 @@ struct RealUsageStatsView: View {
 struct CompactUsageStatPanel: View {
     let title: String
     let percentage: Int
+    var resetTime: String = ""
 
     private var fillColor: Color {
         if percentage >= 90 {
@@ -99,11 +103,18 @@ struct CompactUsageStatPanel: View {
         }
     }
 
+    private var compactResetTime: String {
+        guard !resetTime.isEmpty else { return "" }
+        return resetTime
+            .replacingOccurrences(of: "AM", with: "am")
+            .replacingOccurrences(of: "PM", with: "pm")
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // Title
             Text(title)
-                .font(.system(size: 9, design: .monospaced))
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(Color.Fallout.tertiary)
 
             // Segmented progress bar
@@ -118,11 +129,17 @@ struct CompactUsageStatPanel: View {
                 }
             }
 
-            // Percentage
-            Text("\(percentage)%")
+            // Percentage (fixed-width: "  2%", " 33%", "100%")
+            Text(String(format: "%3d%%", percentage))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundColor(fillColor)
-                .frame(width: 32, alignment: .trailing)
+
+            // Reset time inline
+            if !compactResetTime.isEmpty {
+                Text(compactResetTime)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(Color.Fallout.tertiary)
+            }
         }
     }
 }

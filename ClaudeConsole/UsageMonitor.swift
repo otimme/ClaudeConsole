@@ -27,6 +27,11 @@ struct UsageStats: Codable {
     var sonnetTokensUsed: Int = 0
     var sonnetTokensLimit: Int = 100
 
+    // Reset times (e.g., "9:59AM" or "FEB 12 8:59AM")
+    var sessionResetTime: String = ""
+    var weeklyResetTime: String = ""
+    var modelResetTime: String = ""
+
     var dailyPercentage: Double {
         guard dailyTokensLimit > 0 else { return 0 }
         return Double(dailyTokensUsed) / Double(dailyTokensLimit) * 100
@@ -46,7 +51,8 @@ struct UsageStats: Codable {
 class UsageMonitor: ObservableObject {
     @Published var usageStats = UsageStats()
     @Published var fetchStatus: UsageFetchStatus = .idle
-    @Published var modelTier: String = ""  // "Opus", "Sonnet", "Haiku", or ""
+    @Published var modelTier: String = ""  // "Opus", "Sonnet", "Haiku", or "" (from JSONL session)
+    @Published var usageModelTier: String = ""  // Model tier from /usage output only
 
     // Thread-safe PTY session
     private var ptySession: PTYSession?
@@ -89,6 +95,9 @@ class UsageMonitor: ObservableObject {
             }
             return
         }
+
+        // Detect model from most recent session JSONL immediately at launch
+        detectModelFromSession()
 
         await startBackgroundSession()
     }
@@ -385,6 +394,7 @@ class UsageMonitor: ObservableObject {
 
         let lines = cleanBuffer.components(separatedBy: "\n")
         var newStats = UsageStats()
+        var detectedModelFromUsage = ""
 
         var isSessionSection = false
         var isWeeklySection = false
@@ -394,7 +404,7 @@ class UsageMonitor: ObservableObject {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
             guard !trimmedLine.isEmpty else { continue }
 
-            // Detect sections (but don't skip - percentage might be on same line)
+            // Detect sections first (percentage on same line as header needs current section)
             if trimmedLine.contains("Current session") {
                 isSessionSection = true
                 isWeeklySection = false
@@ -409,10 +419,20 @@ class UsageMonitor: ObservableObject {
                 isSessionSection = false
                 isWeeklySection = false
                 isSonnetSection = true
+                // Extract model name from "Current week (Sonnet only)" → "Sonnet"
+                if let openParen = trimmedLine.range(of: "("),
+                   let closeParen = trimmedLine.range(of: ")") {
+                    let inner = String(trimmedLine[openParen.upperBound..<closeParen.lowerBound])
+                        .replacingOccurrences(of: " only", with: "", options: .caseInsensitive)
+                        .trimmingCharacters(in: .whitespaces)
+                    if !inner.isEmpty {
+                        detectedModelFromUsage = inner.capitalized
+                    }
+                }
                 logger.debug("parseUsageOutput: found section '\(trimmedLine)'")
             }
 
-            // Parse percentage from lines like "5% used", "19% used", or "64%used" (no space)
+            // Parse percentage using CURRENT section state
             if let match = trimmedLine.range(of: #"(\d+)%\s*used"#, options: .regularExpression) {
                 let matchedText = String(trimmedLine[match])
                 let percentStr = matchedText.filter { $0.isNumber }
@@ -421,9 +441,8 @@ class UsageMonitor: ObservableObject {
                     logger.info("parseUsageOutput: matched \(percentage)% in section \(currentSection)")
 
                     if isSessionSection {
-                        // Daily session is the "Current session"
                         newStats.dailyTokensUsed = percentage
-                        newStats.dailyTokensLimit = 100 // We only get percentage
+                        newStats.dailyTokensLimit = 100
                     } else if isWeeklySection {
                         newStats.weeklyTokensUsed = percentage
                         newStats.weeklyTokensLimit = 100
@@ -433,6 +452,31 @@ class UsageMonitor: ObservableObject {
                     }
                 }
             }
+
+            // Match "Resets" with ANSI artifacts: 't' may be consumed by CSI sequences
+            // (e.g., \e[1t eats the 't'), and spaces may appear between characters.
+            // Pattern matches: "Resets", "Rese s", "R e s e t s", etc.
+            if let resetMatch = trimmedLine.range(of: #"R\s*e\s*s\s*e\s*t?\s*s\s+(.+)"#, options: [.regularExpression, .caseInsensitive]) {
+                let fullMatch = String(trimmedLine[resetMatch])
+                let timeStr = fullMatch
+                    .replacingOccurrences(of: #"^R\s*e\s*s\s*e\s*t?\s*s\s+"#, with: "", options: [.regularExpression, .caseInsensitive])
+                    .replacingOccurrences(of: #"\s*\(.*$"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                    .uppercased()
+                let cleanTime = timeStr.replacingOccurrences(of: " AT ", with: " ")
+                logger.info("parseUsageOutput: raw reset match: '\(fullMatch)' → '\(cleanTime)'")
+
+                guard !cleanTime.isEmpty else { continue }
+
+                if isSessionSection {
+                    newStats.sessionResetTime = cleanTime
+                } else if isWeeklySection {
+                    newStats.weeklyResetTime = cleanTime
+                } else if isSonnetSection {
+                    newStats.modelResetTime = cleanTime
+                }
+                logger.debug("parseUsageOutput: reset time '\(cleanTime)' for section")
+            }
         }
 
         // Only update if we found valid data
@@ -440,10 +484,15 @@ class UsageMonitor: ObservableObject {
             logger.info("Usage: session \(newStats.dailyTokensUsed)%, weekly \(newStats.weeklyTokensUsed)%, sonnet/opus \(newStats.sonnetTokensUsed)%")
 
             let stats = newStats
+            let usageModel = detectedModelFromUsage
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.usageStats = stats
                 self.fetchStatus = .success
+                if !usageModel.isEmpty {
+                    logger.info("Setting usage model tier from usage output: \(usageModel)")
+                    self.usageModelTier = usageModel
+                }
             }
 
             // Dismiss the settings panel so the session is ready for the next poll
@@ -514,14 +563,31 @@ class UsageMonitor: ObservableObject {
             let data = fileHandle.readData(ofLength: Int(readSize))
             guard let content = String(data: data, encoding: .utf8) else { return }
 
-            // Extract model: "model":"claude-opus-4-5-20251101"
+            // Extract model: "model":"claude-opus-4-6" or "model":"claude-opus-4-6-20260210"
             var detectedModel = ""
-            let modelPattern = #""model"\s*:\s*"claude-(\w+)-"#
-            if let regex = try? NSRegularExpression(pattern: modelPattern) {
+            // Try versioned pattern first: captures tier, major, minor
+            let versionedPattern = #""model"\s*:\s*"claude-(\w+)-(\d+)-(\d+)"#
+            if let regex = try? NSRegularExpression(pattern: versionedPattern) {
                 let matches = regex.matches(in: content, range: NSRange(content.startIndex..., in: content))
                 if let lastMatch = matches.last,
-                   let range = Range(lastMatch.range(at: 1), in: content) {
-                    detectedModel = String(content[range]).capitalized // "opus" → "Opus"
+                   let tierRange = Range(lastMatch.range(at: 1), in: content),
+                   let majorRange = Range(lastMatch.range(at: 2), in: content),
+                   let minorRange = Range(lastMatch.range(at: 3), in: content) {
+                    let tier = String(content[tierRange]).capitalized // "opus" → "Opus"
+                    let major = String(content[majorRange])
+                    let minor = String(content[minorRange])
+                    detectedModel = "\(tier) \(major).\(minor)" // "Opus 4.6"
+                }
+            }
+            // Fallback: just capture the tier name
+            if detectedModel.isEmpty {
+                let tierPattern = #""model"\s*:\s*"claude-(\w+)-"#
+                if let regex = try? NSRegularExpression(pattern: tierPattern) {
+                    let matches = regex.matches(in: content, range: NSRange(content.startIndex..., in: content))
+                    if let lastMatch = matches.last,
+                       let range = Range(lastMatch.range(at: 1), in: content) {
+                        detectedModel = String(content[range]).capitalized // "opus" → "Opus"
+                    }
                 }
             }
 

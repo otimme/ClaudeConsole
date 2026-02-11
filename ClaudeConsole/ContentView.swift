@@ -364,10 +364,22 @@ struct ContentView: View {
                             selectedProject = project
                             launchProject(project)
                             showProjectLauncher = false
+                            // Focus the terminal so user can type immediately
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if let terminal = terminalController {
+                                    terminal.window?.makeFirstResponder(terminal)
+                                }
+                            }
                         },
                         onSkip: {
                             selectedProject = nil
                             showProjectLauncher = false
+                            // Focus the terminal after skipping launcher too
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if let terminal = terminalController {
+                                    terminal.window?.makeFirstResponder(terminal)
+                                }
+                            }
                         }
                     )
                 }
